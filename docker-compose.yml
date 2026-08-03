@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: solarflow_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - CORS_ORIGINS=http://localhost:3000
+      - ENV=development
+      - TESTING=false
+      - JWT_SECRET_KEY=dev_secret_key_change_in_production_32bytes
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: solarflow_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend

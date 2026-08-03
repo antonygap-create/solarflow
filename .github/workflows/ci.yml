@@ -1,0 +1,72 @@
+name: SolarFlow CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend:
+    name: Backend Lint & Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install flake8 pytest
+
+      - name: Run Flake8 Linter
+        run: |
+          flake8 backend/app --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Run Pytest Test Suite
+        env:
+          TESTING: 'true'
+          USE_SQLITE: 'true'
+          JWT_SECRET_KEY: 'ci_cd_test_secret_key_32bytes_long'
+        run: |
+          pytest backend/tests/ -v
+
+  frontend:
+    name: Frontend Lint, Typecheck & Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run ESLint / Oxlint
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Run TypeScript Typecheck
+        run: |
+          cd frontend
+          npm run typecheck
+
+      - name: Run Production Build
+        run: |
+          cd frontend
+          npm run build

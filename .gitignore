@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.db
+*.sqlite3
+venv/
+.venv/
+
+# Node.js
+node_modules/
+dist/
+.env.local
+.env.production.local
+.env.development.local
+
+# Vendor & Local
+vendor/
+.DS_Store

@@ -211,22 +211,18 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // Perform Robust Geocoding Search
+  // Perform Clean Geocoding Search
   const performGeocodeSearch = async (targetAddress: string) => {
     if (!targetAddress.trim()) return;
     setFetchingInsights(true);
     setError(null);
     try {
-      const formattedQuery = targetAddress.toLowerCase().includes('usa') || targetAddress.toLowerCase().includes('united states')
-        ? targetAddress
-        : `${targetAddress}, USA`;
-
-      const geo = await geocodeAddress(formattedQuery);
+      const geo = await geocodeAddress(targetAddress.trim());
       setLatitude(geo.latitude);
       setLongitude(geo.longitude);
       setAddressSearch(geo.formatted_address);
     } catch (err: any) {
-      setError(`Address Search Notice: Location not found for "${targetAddress}". Please enter a full US street address (e.g. 1800 Port Margate Pl, Newport Beach, CA 92660)`);
+      setError(`Address Search Notice: Could not resolve location for "${targetAddress}". Please verify street address.`);
       setFetchingInsights(false);
     }
   };
@@ -460,7 +456,7 @@ export const SolarCalculator: React.FC = () => {
           <span className="text-4xl">☀️</span>
           <div>
             <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & Roof Anchored Array Engine</h2>
-            <p className="text-slate-400 text-sm">Panels Anchored Directly to Building Roof via OverlayViewF</p>
+            <p className="text-slate-400 text-sm">Panels Anchored Directly to Building Roof via High-Res Satellite View</p>
           </div>
         </div>
 
@@ -474,7 +470,7 @@ export const SolarCalculator: React.FC = () => {
                 : 'bg-transparent text-slate-400 border-transparent hover:text-white'
             }`}
           >
-            🛰️ Native Satellite Map
+            🛰️ High-Res Satellite Map
           </button>
 
           <button
@@ -502,7 +498,7 @@ export const SolarCalculator: React.FC = () => {
       </div>
 
       {error && (
-        <div className="mb-6 p-4 bg-red-900/40 border border-red-500/50 rounded-xl text-red-200 text-sm">
+        <div className="mb-6 p-4 bg-amber-900/40 border border-amber-500/50 rounded-xl text-amber-200 text-sm">
           <strong>Notice:</strong> {error}
         </div>
       )}
@@ -719,7 +715,7 @@ export const SolarCalculator: React.FC = () => {
         {/* Native Google Maps JavaScript API Satellite / Heatmap / 3D Canvas Container */}
         <div className="lg:col-span-2 relative h-96 lg:h-[500px] rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex flex-col justify-between p-2 shadow-2xl">
           {mapMode === 'satellite' ? (
-            isLoaded ? (
+            isLoaded && !loadError ? (
               <GoogleMap
                 mapContainerStyle={{ width: '100%', height: '100%', borderRadius: '1rem' }}
                 center={{ lat: latitude, lng: longitude }}
@@ -743,34 +739,42 @@ export const SolarCalculator: React.FC = () => {
                 </OverlayViewF>
               </GoogleMap>
             ) : (
-              <div className="flex items-center justify-center h-full text-amber-400 font-semibold text-sm">
-                {loadError ? 'Google Maps API loaded in fallback mode' : '🛰️ Loading Native Google Satellite Canvas Engine...'}
+              /* Fallback High-Resolution Satellite Map Tile Container with Anchored SVG Panels */
+              <div
+                className="absolute inset-0 bg-cover bg-center rounded-2xl overflow-hidden cursor-crosshair flex items-center justify-center"
+                style={{
+                  backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${latitude},${longitude}&zoom=20&size=800x600&maptype=satellite&key=${GOOGLE_MAPS_JS_KEY}')`
+                }}
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const dx = (e.clientX - rect.left - rect.width / 2) / rect.width;
+                  const dy = (e.clientY - rect.top - rect.height / 2) / rect.height;
+                  const newLat = parseFloat((latitude - dy * 0.001).toFixed(5));
+                  const newLng = parseFloat((longitude + dx * 0.001).toFixed(5));
+                  setLatitude(newLat);
+                  setLongitude(newLng);
+                }}
+              >
+                <div className="relative pointer-events-auto">
+                  {renderPanelGridSVG()}
+                </div>
               </div>
             )
           ) : mapMode === 'heatmap' ? (
             /* Solar Flux Irradiance Thermal Heatmap Layer */
-            <div className="absolute inset-0 bg-slate-950 overflow-hidden rounded-2xl">
-              {isLoaded && (
-                <GoogleMap
-                  mapContainerStyle={{ width: '100%', height: '100%', opacity: 0.45 }}
-                  center={{ lat: latitude, lng: longitude }}
-                  zoom={20}
-                  onClick={handleMapClick}
-                  options={{ mapTypeId: 'satellite', disableDefaultUI: true }}
-                >
-                  <OverlayViewF
-                    position={{ lat: latitude, lng: longitude }}
-                    mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-                  >
-                    <div className="relative -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
-                      {renderPanelGridSVG()}
-                    </div>
-                  </OverlayViewF>
-                </GoogleMap>
-              )}
+            <div className="absolute inset-0 bg-slate-950 overflow-hidden rounded-2xl flex items-center justify-center">
+              <div
+                className="absolute inset-0 bg-cover bg-center opacity-50"
+                style={{
+                  backgroundImage: `url('https://maps.googleapis.com/maps/api/staticmap?center=${latitude},${longitude}&zoom=20&size=800x600&maptype=satellite&key=${GOOGLE_MAPS_JS_KEY}')`
+                }}
+              ></div>
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-500/80 via-red-600/60 to-blue-900/40 pointer-events-none"></div>
               <div className="absolute top-4 left-4 z-30 px-3 py-1.5 bg-slate-900/90 border border-amber-500/50 rounded-lg text-amber-300 text-xs font-mono">
                 🔥 Google Solar Flux Heatmap Active (&gt;1400 kWh/m²/yr Irradiance Zone)
+              </div>
+              <div className="relative z-20 pointer-events-auto">
+                {renderPanelGridSVG()}
               </div>
             </div>
           ) : (

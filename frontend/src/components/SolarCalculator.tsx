@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { GoogleMap, useJsApiLoader } from '@react-google-maps/api';
+import { GoogleMap, useJsApiLoader, Autocomplete } from '@react-google-maps/api';
 import {
   estimateGeneration,
   estimateEconomics,
@@ -16,6 +16,7 @@ import type {
 } from '../api/solarClient';
 
 const GOOGLE_MAPS_JS_KEY = "AIzaSyBXWuHKI8U1Chf3NA2s-CtjKMjmB3sxESg";
+const MAP_LIBRARIES: ("places" | "geometry" | "drawing")[] = ["places"];
 
 export interface PanelItem {
   id: number;
@@ -33,18 +34,20 @@ export type MapDisplayMode = 'satellite' | 'heatmap' | '3d';
 export type ActiveTool = 'select' | 'add' | 'remove';
 
 export const SolarCalculator: React.FC = () => {
-  // Load Native Google Maps JS API Script
+  // Load Native Google Maps JS API Script with Places Library
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: GOOGLE_MAPS_JS_KEY
+    googleMapsApiKey: GOOGLE_MAPS_JS_KEY,
+    libraries: MAP_LIBRARIES
   });
+
+  // Google Places Autocomplete Ref
+  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
   // Address & Location State
   const [addressSearch, setAddressSearch] = useState<string>('1800 Port Margate Pl, Newport Beach, CA 92660');
   const [latitude, setLatitude] = useState<number>(33.62588);
   const [longitude, setLongitude] = useState<number>(-117.85865);
-  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
 
   // Roof & Technical Parameters
   const [roofAreaSqm, setRoofAreaSqm] = useState<number>(172.79);
@@ -217,7 +220,6 @@ export const SolarCalculator: React.FC = () => {
     if (!targetAddress.trim()) return;
     setFetchingInsights(true);
     setError(null);
-    setShowSuggestions(false);
     try {
       const geo = await geocodeAddress(targetAddress);
       setLatitude(geo.latitude);
@@ -229,21 +231,19 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // Handle Input Address Change
-  const handleAddressInputChange = (val: string) => {
-    setAddressSearch(val);
-    if (val.length > 3) {
-      const mockList = [
-        val,
-        `${val}, Los Angeles, CA`,
-        `${val}, San Francisco, CA`,
-        `${val}, San Jose, CA`,
-        `${val}, Miami, FL`
-      ];
-      setAddressSuggestions(mockList);
-      setShowSuggestions(true);
-    } else {
-      setShowSuggestions(false);
+  // Google Places Autocomplete Select Event Handler
+  const handlePlaceSelect = () => {
+    if (autocompleteRef.current) {
+      const place = autocompleteRef.current.getPlace();
+      if (place.geometry && place.geometry.location) {
+        const lat = parseFloat(place.geometry.location.lat().toFixed(5));
+        const lng = parseFloat(place.geometry.location.lng().toFixed(5));
+        setLatitude(lat);
+        setLongitude(lng);
+        setAddressSearch(place.formatted_address || place.name || addressSearch);
+      } else if (place.name) {
+        performGeocodeSearch(place.name);
+      }
     }
   };
 
@@ -394,8 +394,8 @@ export const SolarCalculator: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span className="text-4xl">☀️</span>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & Multi-Layer Map Engine</h2>
-            <p className="text-slate-400 text-sm">Google Satellite, Solar Flux Heatmap & 3D Roof Model Visualizer</p>
+            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & Google Places Autocomplete Engine</h2>
+            <p className="text-slate-400 text-sm">Real-time US Address Autocomplete, Google Solar Flux Heatmap & 3D Roof Mesh</p>
           </div>
         </div>
 
@@ -530,44 +530,44 @@ export const SolarCalculator: React.FC = () => {
       <div className="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Location & Architecture Settings Sidebar */}
         <div className="lg:col-span-1 space-y-4">
-          <div className="relative">
-            <form onSubmit={handleAddressSearchSubmit}>
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                🔍 Address / Location Search
-              </label>
-              <div className="flex space-x-2">
+          <form onSubmit={handleAddressSearchSubmit}>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              🔍 Address / Location Search (Google Autocomplete)
+            </label>
+            <div className="flex space-x-2">
+              {isLoaded ? (
+                <Autocomplete
+                  onLoad={(auto) => { autocompleteRef.current = auto; }}
+                  onPlaceChanged={handlePlaceSelect}
+                  options={{ componentRestrictions: { country: "us" } }}
+                  className="flex-1"
+                >
+                  <input
+                    type="text"
+                    value={addressSearch}
+                    onChange={(e) => setAddressSearch(e.target.value)}
+                    placeholder="Type US street address or city..."
+                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
+                  />
+                </Autocomplete>
+              ) : (
                 <input
                   type="text"
                   value={addressSearch}
-                  onChange={(e) => handleAddressInputChange(e.target.value)}
-                  placeholder="Enter street address..."
+                  onChange={(e) => setAddressSearch(e.target.value)}
+                  placeholder="Type street address..."
                   className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
                 />
-                <button
-                  type="submit"
-                  disabled={fetchingInsights}
-                  className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-sm transition disabled:opacity-50"
-                >
-                  Search
-                </button>
-              </div>
-            </form>
-
-            {/* Address Autocomplete Suggestions Dropdown */}
-            {showSuggestions && addressSuggestions.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto divide-y divide-slate-700/60">
-                {addressSuggestions.map((sugg, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => performGeocodeSearch(sugg)}
-                    className="p-2.5 text-xs text-slate-200 hover:bg-amber-500 hover:text-slate-950 cursor-pointer font-medium transition"
-                  >
-                    📍 {sugg}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+              )}
+              <button
+                type="submit"
+                disabled={fetchingInsights}
+                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-sm transition disabled:opacity-50"
+              >
+                Search
+              </button>
+            </div>
+          </form>
 
           <button
             type="button"

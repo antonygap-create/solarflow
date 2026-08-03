@@ -234,30 +234,31 @@ export const SolarCalculator: React.FC = () => {
         </div>
 
         {/* Interactive Satellite View Map Preview */}
-        <div className="lg:col-span-2 relative h-56 lg:h-auto rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex flex-col justify-between p-4 shadow-inner">
-          <div className="absolute inset-0 opacity-40 bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none"></div>
-          
-          <div className="relative z-10 flex justify-between items-start">
-            <span className="px-3 py-1 bg-slate-900/90 text-slate-300 text-xs font-mono rounded-lg border border-slate-700">
-              🛰️ Satellite View Map: {latitude}°N, {longitude}°W
+        <div className="lg:col-span-2 relative h-64 lg:h-auto rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex flex-col justify-between p-2 shadow-inner">
+          <iframe
+            title="Roof Satellite View Map"
+            width="100%"
+            height="100%"
+            className="absolute inset-0 w-full h-full border-0 rounded-2xl opacity-75 hover:opacity-100 transition duration-300 pointer-events-auto"
+            loading="lazy"
+            src={`https://maps.google.com/maps?q=${latitude},${longitude}&t=k&z=19&ie=UTF8&iwloc=&output=embed`}
+          ></iframe>
+
+          <div className="relative z-10 flex justify-between items-start pointer-events-none p-2">
+            <span className="px-3 py-1 bg-slate-900/90 text-slate-200 text-xs font-mono rounded-lg border border-slate-700 shadow-md">
+              🛰️ Satellite Roof View: {latitude.toFixed(4)}°N, {longitude.toFixed(4)}°W
             </span>
             {fetchingInsights && (
-              <span className="px-3 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg animate-pulse">
-                Fetching Solar Insights...
+              <span className="px-3 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg animate-pulse shadow-md">
+                Searching & Fetching Solar Insights...
               </span>
             )}
           </div>
 
-          <div className="relative z-10 my-auto text-center">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 text-2xl mb-2 border border-amber-500/40 animate-bounce">
-              📍
-            </div>
-            <p className="text-sm font-semibold text-slate-200">Building Roof Selected</p>
-            <p className="text-xs text-slate-400 font-mono">Roof Area: {roofAreaSqm} m² | Tilt: {pitchDegrees}° | Azimuth: {azimuthDegrees}°</p>
-          </div>
-
-          <div className="relative z-10 text-right">
-            <span className="text-[10px] text-slate-500">Google Solar API Layer Active</span>
+          <div className="relative z-10 text-right pointer-events-none p-2">
+            <span className="px-2.5 py-1 bg-slate-900/90 text-amber-300 text-[11px] font-semibold rounded-md border border-slate-700">
+              Roof Area: {roofAreaSqm} m² | Tilt: {pitchDegrees}° | Azimuth: {azimuthDegrees}°
+            </span>
           </div>
         </div>
       </div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
   estimateGeneration,
@@ -22,10 +22,13 @@ export const SolarCalculator: React.FC = () => {
 
   // Roof & Technical Parameters
   const [roofAreaSqm, setRoofAreaSqm] = useState<number>(172.79);
+  const [maxPanelsCount, setMaxPanelsCount] = useState<number>(88);
+  const [activePanelCount, setActivePanelCount] = useState<number>(88);
   const [pitchDegrees, setPitchDegrees] = useState<number>(23.2);
   const [azimuthDegrees, setAzimuthDegrees] = useState<number>(9.5);
   const [annualConsumptionKwh, setAnnualConsumptionKwh] = useState<number>(12000);
   const [customerEmail, setCustomerEmail] = useState<string>('');
+  const [mapMode, setMapMode] = useState<'hybrid' | 'blueprint'>('hybrid');
 
   // Status & Output State
   const [fetchingInsights, setFetchingInsights] = useState<boolean>(false);
@@ -38,6 +41,24 @@ export const SolarCalculator: React.FC = () => {
   const [economicsResult, setEconomicsResult] = useState<EconomicsResponse | null>(null);
   const [savedProposal, setSavedProposal] = useState<ProposalRead | null>(null);
 
+  // Calculate 2D/3D Grid Rows & Columns for Panel Array Overlay
+  const panelGrid = useMemo(() => {
+    const total = activePanelCount;
+    const cols = Math.min(10, Math.ceil(Math.sqrt(total * 1.5)));
+    const rows = Math.ceil(total / cols);
+    const panels = [];
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const index = r * cols + c;
+        if (index < total) {
+          panels.push({ row: r, col: c, index });
+        }
+      }
+    }
+    return { rows, cols, panels };
+  }, [activePanelCount]);
+
   // 1. Fetch Google Solar Insights & Auto-Calculate when Coordinates Change
   const fetchInsightsAndCalculate = useCallback(async (lat: number, lng: number) => {
     setFetchingInsights(true);
@@ -46,6 +67,8 @@ export const SolarCalculator: React.FC = () => {
       // Step A: Fetch Google Solar API Building Insights
       const insights: SolarInsightsResponse = await getSolarInsights(lat, lng);
       setRoofAreaSqm(insights.roof_area_sqm);
+      setMaxPanelsCount(insights.max_panels_count || 88);
+      setActivePanelCount(insights.max_panels_count || 88);
       setPitchDegrees(insights.pitch_degrees);
       setAzimuthDegrees(insights.azimuth_degrees);
 
@@ -69,12 +92,12 @@ export const SolarCalculator: React.FC = () => {
       });
       setGenerationResult(genRes);
 
-      // System Capacity (kW) = Roof Area (m²) * 0.20 efficiency ratio
-      const estimatedCapacityKw = Number(insights.roof_area_sqm) * 0.20;
+      // System Capacity (kW) = Active Panels * 0.400 kW (400W High Efficiency PV module)
+      const systemCapacityKw = (insights.max_panels_count || 88) * 0.400;
 
       // Step C: Auto-Calculate Financial Economics
       const econRes = await estimateEconomics({
-        system_capacity_kw: estimatedCapacityKw,
+        system_capacity_kw: systemCapacityKw,
         annual_energy_kwh: genRes.estimated_annual_kwh,
         annual_consumption_kwh: Number(annualConsumptionKwh),
         tariff_type: 'NEM3'
@@ -90,6 +113,35 @@ export const SolarCalculator: React.FC = () => {
   useEffect(() => {
     fetchInsightsAndCalculate(latitude, longitude);
   }, [latitude, longitude, fetchInsightsAndCalculate]);
+
+  // Handle Panel Count Slider Drag
+  const handlePanelCountChange = async (count: number) => {
+    setActivePanelCount(count);
+    const scaledArea = count * 1.7; // Standard PV panel area ~ 1.7 m²
+    setRoofAreaSqm(Number(scaledArea.toFixed(1)));
+
+    try {
+      const genRes = await estimateGeneration({
+        latitude: Number(latitude),
+        longitude: Number(longitude),
+        roof_area_sqm: scaledArea,
+        azimuth: Number(azimuthDegrees),
+        tilt: Number(pitchDegrees)
+      });
+      setGenerationResult(genRes);
+
+      const systemCapacityKw = count * 0.400; // 400W per panel
+      const econRes = await estimateEconomics({
+        system_capacity_kw: systemCapacityKw,
+        annual_energy_kwh: genRes.estimated_annual_kwh,
+        annual_consumption_kwh: Number(annualConsumptionKwh),
+        tariff_type: 'NEM3'
+      });
+      setEconomicsResult(econRes);
+    } catch (err: any) {
+      console.error("Recalculation error:", err);
+    }
+  };
 
   // 2. HTML5 Geolocation Button Handler
   const handleUseMyLocation = () => {
@@ -147,7 +199,7 @@ export const SolarCalculator: React.FC = () => {
       });
       setGenerationResult(genRes);
 
-      const estimatedCapacityKw = Number(roofAreaSqm) * 0.20;
+      const estimatedCapacityKw = activePanelCount * 0.400;
 
       const econRes = await estimateEconomics({
         system_capacity_kw: estimatedCapacityKw,
@@ -170,7 +222,7 @@ export const SolarCalculator: React.FC = () => {
     setError(null);
 
     try {
-      const estimatedCapacityKw = Number(roofAreaSqm) * 0.20;
+      const estimatedCapacityKw = activePanelCount * 0.400;
 
       const proposalRecord = await saveProposal({
         customer_email: customerEmail || undefined,
@@ -192,18 +244,38 @@ export const SolarCalculator: React.FC = () => {
   };
 
   return (
-    <div className="max-w-5xl mx-auto p-6 bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-800 my-8">
-      <div className="flex items-center justify-between mb-6 border-b border-slate-800 pb-4">
+    <div className="max-w-6xl mx-auto p-6 bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-800 my-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b border-slate-800 pb-4">
         <div className="flex items-center space-x-3">
           <span className="text-4xl">☀️</span>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow GIS & Google Solar Calculator</h2>
-            <p className="text-slate-400 text-sm">Interactive Satellite Roof Mapping & NEM 3.0 Financial Yield Engine</p>
+            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD & 3D Roof Layout Visualizer</h2>
+            <p className="text-slate-400 text-sm">Interactive Satellite Solar Array Packing & NEM 3.0 Yield Engine</p>
           </div>
         </div>
-        <span className="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full text-xs font-medium">
-          Google Solar API Connected
-        </span>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setMapMode('hybrid')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+              mapMode === 'hybrid'
+                ? 'bg-amber-500 text-slate-950 border-amber-400'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+            }`}
+          >
+            🛰️ Satellite + Layout
+          </button>
+          <button
+            onClick={() => setMapMode('blueprint')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+              mapMode === 'blueprint'
+                ? 'bg-amber-500 text-slate-950 border-amber-400'
+                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+            }`}
+          >
+            📐 CAD Blueprint
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -212,9 +284,9 @@ export const SolarCalculator: React.FC = () => {
         </div>
       )}
 
-      {/* Address Search & Satellite Map Container */}
+      {/* Address Search & Solar Panel Map Container */}
       <div className="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Search & Location Bar */}
+        {/* Search & Layout Control Sidebar */}
         <div className="lg:col-span-1 space-y-4">
           <form onSubmit={handleAddressSearchSubmit}>
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
@@ -247,6 +319,28 @@ export const SolarCalculator: React.FC = () => {
             <span>📍 Use My Location (GPS)</span>
           </button>
 
+          {/* Panel Count Slider */}
+          <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700 space-y-3">
+            <div className="flex justify-between items-center text-xs font-semibold">
+              <span className="text-slate-300">Installed Panel Count</span>
+              <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-md font-mono text-sm">
+                {activePanelCount} / {maxPanelsCount} Panels
+              </span>
+            </div>
+            <input
+              type="range"
+              min="1"
+              max={Math.max(120, maxPanelsCount)}
+              value={activePanelCount}
+              onChange={(e) => handlePanelCountChange(parseInt(e.target.value))}
+              className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-400"
+            />
+            <div className="flex justify-between text-[10px] text-slate-400 font-mono">
+              <span>DC Power: {(activePanelCount * 0.400).toFixed(1)} kWp</span>
+              <span>Roof Fill: {((activePanelCount * 1.7 / roofAreaSqm) * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+
           {insightsNotice && (
             <div className="p-3.5 bg-slate-800/90 border border-amber-500/30 rounded-xl text-amber-200 text-xs leading-relaxed">
               {insightsNotice}
@@ -254,31 +348,96 @@ export const SolarCalculator: React.FC = () => {
           )}
         </div>
 
-        {/* Interactive Satellite View Map Preview */}
-        <div className="lg:col-span-2 relative h-64 lg:h-auto rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex flex-col justify-between p-2 shadow-inner">
-          <iframe
-            title="Roof Satellite View Map"
-            width="100%"
-            height="100%"
-            className="absolute inset-0 w-full h-full border-0 rounded-2xl opacity-85 hover:opacity-100 transition duration-300 pointer-events-auto"
-            loading="lazy"
-            src={`https://maps.google.com/maps?q=${latitude},${longitude}&t=k&z=19&ie=UTF8&iwloc=&output=embed`}
-          ></iframe>
+        {/* Interactive Satellite View + 2D/3D Solar Array Layout Overlay */}
+        <div className="lg:col-span-2 relative h-80 lg:h-96 rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex flex-col justify-between p-2 shadow-2xl">
+          {mapMode === 'hybrid' ? (
+            <iframe
+              title="Roof Satellite View Map"
+              width="100%"
+              height="100%"
+              className="absolute inset-0 w-full h-full border-0 rounded-2xl opacity-70 pointer-events-auto"
+              loading="lazy"
+              src={`https://maps.google.com/maps?q=${latitude},${longitude}&t=k&z=20&ie=UTF8&iwloc=&output=embed`}
+            ></iframe>
+          ) : (
+            <div className="absolute inset-0 bg-slate-950 opacity-95 bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:20px_20px]"></div>
+          )}
 
+          {/* SVG Solar Panel Array Layout Overlay */}
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none p-4">
+            <div
+              className="transition-transform duration-500 shadow-2xl"
+              style={{
+                transform: `rotate(${azimuthDegrees - 180}deg) scale(${1 - pitchDegrees / 180})`,
+              }}
+            >
+              <svg
+                width={Math.min(380, panelGrid.cols * 34)}
+                height={Math.min(260, panelGrid.rows * 48)}
+                className="overflow-visible"
+              >
+                <defs>
+                  {/* Solar Panel Gradient */}
+                  <linearGradient id="solarCellGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stopColor="#1e3a8a" />
+                    <stop offset="50%" stopColor="#1d4ed8" />
+                    <stop offset="100%" stopColor="#1e40af" />
+                  </linearGradient>
+                  {/* Anti-reflective Glass Shimmer */}
+                  <linearGradient id="glassShimmer" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#ffffff" stopOpacity="0.1" />
+                    <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.4" />
+                    <stop offset="100%" stopColor="#ffffff" stopOpacity="0.1" />
+                  </linearGradient>
+                </defs>
+
+                <g>
+                  {panelGrid.panels.map(({ row, col, index }) => (
+                    <g key={index} transform={`translate(${col * 34}, ${row * 48})`}>
+                      {/* Aluminum Frame Outer */}
+                      <rect
+                        x="1"
+                        y="1"
+                        width="31"
+                        height="45"
+                        rx="2"
+                        fill="url(#solarCellGrad)"
+                        stroke="#0284c7"
+                        strokeWidth="1.5"
+                      />
+                      {/* Silicon Cell Lines */}
+                      <line x1="1" y1="15" x2="32" y2="15" stroke="#38bdf8" strokeWidth="0.5" strokeOpacity="0.6" />
+                      <line x1="1" y1="30" x2="32" y2="30" stroke="#38bdf8" strokeWidth="0.5" strokeOpacity="0.6" />
+                      <line x1="11" y1="1" x2="11" y2="45" stroke="#38bdf8" strokeWidth="0.5" strokeOpacity="0.6" />
+                      <line x1="21" y1="1" x2="21" y2="45" stroke="#38bdf8" strokeWidth="0.5" strokeOpacity="0.6" />
+                      {/* Solar Cell Reflective Glass Overlay */}
+                      <rect x="2" y="2" width="29" height="43" fill="url(#glassShimmer)" />
+                    </g>
+                  ))}
+                </g>
+              </svg>
+            </div>
+          </div>
+
+          {/* Top Info Banner */}
           <div className="relative z-10 flex justify-between items-start pointer-events-none p-2">
             <span className="px-3 py-1 bg-slate-900/90 text-slate-200 text-xs font-mono rounded-lg border border-slate-700 shadow-md">
               🛰️ Satellite Roof View: {latitude.toFixed(4)}°N, {longitude.toFixed(4)}°W
             </span>
             {fetchingInsights && (
               <span className="px-3 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg animate-pulse shadow-md">
-                Analyzing Building & Solar Potential...
+                Analyzing Building & Solar Array...
               </span>
             )}
           </div>
 
-          <div className="relative z-10 text-right pointer-events-none p-2">
-            <span className="px-2.5 py-1 bg-slate-900/90 text-amber-300 text-[11px] font-semibold rounded-md border border-slate-700">
-              Roof Area: {roofAreaSqm} m² | Tilt: {pitchDegrees}° | Azimuth: {azimuthDegrees}°
+          {/* Bottom Info Banner */}
+          <div className="relative z-10 flex justify-between items-end pointer-events-none p-2">
+            <span className="px-2.5 py-1 bg-blue-950/90 text-blue-300 text-[11px] font-semibold rounded-md border border-blue-700/60 shadow-md">
+              ⚡ {activePanelCount} Active PV Modules ({(activePanelCount * 0.400).toFixed(1)} kWp Array)
+            </span>
+            <span className="px-2.5 py-1 bg-slate-900/90 text-amber-300 text-[11px] font-semibold rounded-md border border-slate-700 shadow-md">
+              Area: {roofAreaSqm} m² | Tilt: {pitchDegrees}° | Azimuth: {azimuthDegrees}°
             </span>
           </div>
         </div>

@@ -56,6 +56,10 @@ export const SolarCalculator: React.FC = () => {
   // Map Layer Display Modes: Satellite vs Heatmap vs 3D Perspective
   const [mapMode, setMapMode] = useState<MapDisplayMode>('satellite');
 
+  // 3D Orbital Auto-Rotation state
+  const [isOrbiting3D, setIsOrbiting3D] = useState<boolean>(false);
+  const [orbitHeading, setOrbitHeading] = useState<number>(0);
+
   // Layout Placement Options
   const [mountType, setMountType] = useState<MountType>('FLUSH');
   const [orientation, setOrientation] = useState<OrientationType>('LANDSCAPE');
@@ -85,6 +89,23 @@ export const SolarCalculator: React.FC = () => {
   const activePanelCount = useMemo(() => {
     return panels.filter((p) => p.active).length;
   }, [panels]);
+
+  // 360-Degree Orbital Auto-Rotation Animation Loop for 3D Mode
+  useEffect(() => {
+    if (mapMode !== '3d' || !isOrbiting3D) return;
+    let animId: number;
+    let lastTime = performance.now();
+
+    const tick = (now: number) => {
+      const delta = (now - lastTime) / 1000;
+      lastTime = now;
+      setOrbitHeading((prev) => (prev + delta * 25) % 360);
+      animId = requestAnimationFrame(tick);
+    };
+
+    animId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animId);
+  }, [mapMode, isOrbiting3D]);
 
   // Construct initial panel grid layout array matching maxPanelsCount
   const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
@@ -269,9 +290,20 @@ export const SolarCalculator: React.FC = () => {
   };
 
   const handlePanelSliderChange = (count: number) => {
-    const updated = panels.map((p, idx) => ({ ...p, active: idx < count }));
+    const validCount = Math.max(1, Math.min(maxPanelsCount || 120, count));
+    const updated = panels.map((p, idx) => ({ ...p, active: idx < validCount }));
     setPanels(updated);
-    handleRecalculateActivePanels(count);
+    handleRecalculateActivePanels(validCount);
+  };
+
+  const handleAddSinglePanel = () => {
+    const nextCount = Math.min(maxPanelsCount || 120, activePanelCount + 1);
+    handlePanelSliderChange(nextCount);
+  };
+
+  const handleSubtractSinglePanel = () => {
+    const nextCount = Math.max(1, activePanelCount - 1);
+    handlePanelSliderChange(nextCount);
   };
 
   const handleUseMyLocation = () => {
@@ -373,7 +405,7 @@ export const SolarCalculator: React.FC = () => {
       className="transition-transform duration-500 shadow-2xl pointer-events-auto"
       style={{
         transform: mapMode === '3d'
-          ? `rotate(${azimuthDegrees - 180}deg) rotateX(45deg) scale(1.15)`
+          ? `rotate(${azimuthDegrees - 180 + orbitHeading}deg) rotateX(45deg) scale(1.15)`
           : `rotate(${azimuthDegrees - 180}deg) scale(${1 - pitchDegrees / 180})`,
       }}
     >
@@ -683,13 +715,35 @@ export const SolarCalculator: React.FC = () => {
             </div>
           </div>
 
-          {/* Panel Count Slider */}
+          {/* Panel Count Adjustment Controls (+ / - & Slider) */}
           <div className="p-4 bg-slate-800/90 rounded-xl border border-slate-700 space-y-3">
             <div className="flex justify-between items-center text-xs font-semibold">
               <span className="text-slate-300">Active Solar Modules</span>
-              <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-md font-mono text-sm">
-                {activePanelCount} / {maxPanelsCount} Panels
-              </span>
+              
+              {/* Simple Mode + / - Buttons */}
+              <div className="flex items-center space-x-1.5">
+                <button
+                  type="button"
+                  onClick={handleSubtractSinglePanel}
+                  disabled={activePanelCount <= 1}
+                  title="Subtract 1 panel"
+                  className="w-6 h-6 flex items-center justify-center bg-slate-900 hover:bg-slate-700 text-amber-300 border border-slate-700 rounded font-bold text-sm disabled:opacity-40"
+                >
+                  −
+                </button>
+                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-md font-mono text-xs font-bold">
+                  {activePanelCount} / {maxPanelsCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleAddSinglePanel}
+                  disabled={activePanelCount >= maxPanelsCount}
+                  title="Add 1 panel"
+                  className="w-6 h-6 flex items-center justify-center bg-amber-500 hover:bg-amber-600 text-slate-950 rounded font-bold text-sm disabled:opacity-40"
+                >
+                  +
+                </button>
+              </div>
             </div>
             <input
               type="range"
@@ -778,11 +832,24 @@ export const SolarCalculator: React.FC = () => {
               </div>
             </div>
           ) : (
-            /* 3D Roof Model Perspective View */
+            /* 3D Roof Model Perspective View with 360-Degree Orbital Auto-Rotation */
             <div className="absolute inset-0 bg-slate-950 overflow-hidden rounded-2xl flex items-center justify-center">
               <div className="absolute inset-0 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:28px_28px] opacity-25"></div>
-              <div className="absolute top-4 left-4 z-30 px-3 py-1.5 bg-indigo-950/90 border border-indigo-500/50 rounded-lg text-indigo-300 text-xs font-mono">
-                🧊 3D Solar Roof Mesh & PV Array Perspective View
+              <div className="absolute top-4 left-4 z-30 flex items-center space-x-2">
+                <span className="px-3 py-1.5 bg-indigo-950/90 border border-indigo-500/50 rounded-lg text-indigo-300 text-xs font-mono">
+                  🧊 3D Solar Roof Mesh & PV Array Perspective View
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsOrbiting3D((prev) => !prev)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${
+                    isOrbiting3D
+                      ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md'
+                      : 'bg-slate-900 text-slate-200 border-slate-700 hover:bg-slate-800'
+                  }`}
+                >
+                  {isOrbiting3D ? '⏸️ Pause 360° Orbit' : '🔄 Auto-Rotate 360°'}
+                </button>
               </div>
               <div className="absolute inset-0 flex items-center justify-center p-4">
                 {renderPanelGridSVG()}

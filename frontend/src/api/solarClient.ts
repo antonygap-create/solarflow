@@ -34,10 +34,14 @@ export interface EconomicsRequest {
   annual_energy_kwh: number;
   annual_consumption_kwh: number;
   tariff_type?: 'FLAT' | 'TOU' | 'NEM3';
+  system_architecture?: 'GRID_TIED' | 'HYBRID_BATTERY' | 'OFF_GRID';
+  battery_capacity_kwh?: number;
+  ev_charger_enabled?: boolean;
 }
 
 export interface EconomicsResponse {
   total_system_cost: number;
+  battery_cost_usd?: number;
   estimated_annual_savings: number;
   payback_period_years: number;
   roi_25_years_percent: number;

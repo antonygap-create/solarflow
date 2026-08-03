@@ -14,6 +14,13 @@ class TariffType(str, Enum):
     NEM3 = "NEM3"
 
 
+class SystemArchitecture(str, Enum):
+    """System architecture types (Grid-tied vs Hybrid vs Off-grid)."""
+    GRID_TIED = "GRID_TIED"
+    HYBRID_BATTERY = "HYBRID_BATTERY"
+    OFF_GRID = "OFF_GRID"
+
+
 class EconomicsRequest(BaseModel):
     """Input request model for financial economics and 8760-hour NEM 3.0 calculation."""
 
@@ -40,13 +47,29 @@ class EconomicsRequest(BaseModel):
         description="Tariff compensation model (FLAT, TOU, NEM3)",
         json_schema_extra={"example": "NEM3"}
     )
+    system_architecture: SystemArchitecture = Field(
+        default=SystemArchitecture.GRID_TIED,
+        description="System configuration (GRID_TIED, HYBRID_BATTERY, OFF_GRID)",
+        json_schema_extra={"example": "HYBRID_BATTERY"}
+    )
+    battery_capacity_kwh: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Battery storage capacity in kWh (e.g. 13.5 kWh Tesla Powerwall)",
+        json_schema_extra={"example": 13.5}
+    )
+    ev_charger_enabled: bool = Field(
+        default=False,
+        description="Whether Level 2 EV Charger is included in the installation proposal",
+        json_schema_extra={"example": True}
+    )
     hourly_generation: Optional[List[float]] = Field(
         default=None,
-        description="Optional 8760-hour array of solar generation values in kWh. Must contain exactly 8760 elements if provided."
+        description="Optional 8760-hour array of solar generation values in kWh."
     )
     hourly_consumption: Optional[List[float]] = Field(
         default=None,
-        description="Optional 8760-hour array of consumption values in kWh. Must contain exactly 8760 elements if provided."
+        description="Optional 8760-hour array of consumption values in kWh."
     )
 
     @field_validator("hourly_generation", "hourly_consumption")
@@ -62,39 +85,29 @@ class EconomicsResponse(BaseModel):
 
     total_system_cost: float = Field(
         ...,
-        description="Total turn-key gross system cost in USD, rounded to 2 decimal places",
-        json_schema_extra={"example": 25000.00}
+        description="Total turn-key gross system cost in USD, rounded to 2 decimal places"
+    )
+    battery_cost_usd: float = Field(
+        default=0.0,
+        description="Battery storage hardware & installation cost in USD"
     )
     estimated_annual_savings: float = Field(
         ...,
-        description="Estimated Year 1 annual utility bill savings in USD, rounded to 2 decimal places",
-        json_schema_extra={"example": 3120.50}
+        description="Estimated Year 1 annual utility bill savings in USD, rounded to 2 decimal places"
     )
     payback_period_years: float = Field(
         ...,
-        description="Simple payback period in years, rounded to 1 decimal place",
-        json_schema_extra={"example": 8.0}
+        description="Simple payback period in years, rounded to 1 decimal place"
     )
     roi_25_years_percent: float = Field(
         ...,
-        description="25-year Return on Investment percentage, rounded to 2 decimal places",
-        json_schema_extra={"example": 212.05}
+        description="25-year Return on Investment percentage, rounded to 2 decimal places"
     )
     self_consumption_ratio: float = Field(
         ...,
-        description="Ratio of generated solar energy consumed on-site (0.0 to 1.0), rounded to 4 decimal places",
-        json_schema_extra={"example": 0.7250}
+        description="Ratio of generated solar energy consumed on-site (0.0 to 1.0), rounded to 4 decimal places"
     )
     assumptions: Dict[str, Any] = Field(
         ...,
-        description="Financial and physical constants used in calculation",
-        json_schema_extra={
-            "example": {
-                "cost_per_kw_usd": 2500.0,
-                "import_rate_usd_kwh": 0.25,
-                "export_rate_usd_kwh": 0.08,
-                "system_lifespan_years": 25,
-                "tariff_type": "NEM3"
-            }
-        }
+        description="Financial and physical constants used in calculation"
     )

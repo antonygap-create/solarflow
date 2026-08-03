@@ -60,7 +60,7 @@ export const SolarCalculator: React.FC = () => {
 
   // System Architecture & Hybrid Storage Options
   const [systemArchitecture, setSystemArchitecture] = useState<ArchitectureType>('HYBRID_BATTERY');
-  const [batteryCapacityKwh, setBatteryCapacityKwh] = useState<number>(13.5); // Tesla Powerwall 3 default
+  const [batteryCapacityKwh, setBatteryCapacityKwh] = useState<number>(13.5);
   const [evChargerEnabled, setEvChargerEnabled] = useState<boolean>(true);
 
   // Interactive Panels State Array
@@ -82,7 +82,7 @@ export const SolarCalculator: React.FC = () => {
     return panels.filter((p) => p.active).length;
   }, [panels]);
 
-  // Construct initial panel grid layout array matching maxPanelsCount
+  // Construct initial panel grid layout array matching maxPanelsCount and roof geometry
   const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
     const cols = orientation === 'LANDSCAPE' 
       ? Math.min(12, Math.ceil(Math.sqrt(count * 1.5)))
@@ -127,7 +127,7 @@ export const SolarCalculator: React.FC = () => {
         );
       } else {
         setInsightsNotice(
-          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max). Use CAD Layout Tools to customize your array.`
+          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max). Click anywhere on the map to select another building roof.`
         );
       }
 
@@ -165,7 +165,7 @@ export const SolarCalculator: React.FC = () => {
     fetchInsightsAndCalculate(latitude, longitude);
   }, [latitude, longitude, fetchInsightsAndCalculate]);
 
-  // Recalculate financial yield when parameters change
+  // Recalculate financial yield when active panels change
   const handleRecalculateActivePanels = useCallback(async (activeCount: number) => {
     const scaledArea = activeCount * (orientation === 'LANDSCAPE' ? 1.7 : 1.75);
     setRoofAreaSqm(Number(scaledArea.toFixed(1)));
@@ -180,7 +180,7 @@ export const SolarCalculator: React.FC = () => {
       });
       setGenerationResult(genRes);
 
-      const systemCapacityKw = activeCount * 0.400; // 400W per module
+      const systemCapacityKw = activeCount * 0.400;
       const econRes = await estimateEconomics({
         system_capacity_kw: systemCapacityKw,
         annual_energy_kwh: genRes.estimated_annual_kwh,
@@ -195,6 +195,17 @@ export const SolarCalculator: React.FC = () => {
       console.error("Recalculation error:", err);
     }
   }, [latitude, longitude, azimuthDegrees, pitchDegrees, mountType, orientation, annualConsumptionKwh, systemArchitecture, batteryCapacityKwh, evChargerEnabled]);
+
+  // 4. Handle Click Anywhere on Satellite Map to Select Different Building Roof
+  const handleMapClick = (e: google.maps.MapMouseEvent) => {
+    if (e.latLng) {
+      const clickedLat = parseFloat(e.latLng.lat().toFixed(5));
+      const clickedLng = parseFloat(e.latLng.lng().toFixed(5));
+      setLatitude(clickedLat);
+      setLongitude(clickedLng);
+      setAddressSearch(`Selected Building Roof (${clickedLat}, ${clickedLng})`);
+    }
+  };
 
   // Layout Tool Actions
   const handlePanelClick = (id: number) => {
@@ -237,14 +248,12 @@ export const SolarCalculator: React.FC = () => {
     handleRecalculateActivePanels(maxPanelsCount);
   };
 
-  // Handle Panel Count Slider Drag
   const handlePanelSliderChange = (count: number) => {
     const updated = panels.map((p, idx) => ({ ...p, active: idx < count }));
     setPanels(updated);
     handleRecalculateActivePanels(count);
   };
 
-  // 2. HTML5 Geolocation Button Handler
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
       setError('Geolocation is not supported by your browser.');
@@ -266,7 +275,6 @@ export const SolarCalculator: React.FC = () => {
     );
   };
 
-  // 3. Address Search Submit Handler with Real Geocoding API
   const handleAddressSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addressSearch.trim()) return;
@@ -283,7 +291,6 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // 4. Manual Calculate Submit Handler
   const handleCalculate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -319,7 +326,6 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // 5. Save Commercial Proposal to PostgreSQL
   const handleSaveProposal = async () => {
     if (!generationResult || !economicsResult) return;
     setSaving(true);
@@ -347,7 +353,6 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // Panel Grid dimensions for SVG
   const colsCount = orientation === 'LANDSCAPE'
     ? Math.min(12, Math.ceil(Math.sqrt((maxPanelsCount || 88) * 1.5)))
     : Math.min(10, Math.ceil(Math.sqrt((maxPanelsCount || 88) * 1.1)));
@@ -360,8 +365,8 @@ export const SolarCalculator: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span className="text-4xl">☀️</span>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & CAD Layout Suite</h2>
-            <p className="text-slate-400 text-sm">Professional B2B/B2C Solar Array Layout, Battery Sizing & NEM 3.0 Financial Engine</p>
+            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & Interactive Roof Selector</h2>
+            <p className="text-slate-400 text-sm">Automatic Roof-Geometry Panel Alignment & Interactive Map Roof Selection</p>
           </div>
         </div>
         <div className="flex items-center space-x-2">
@@ -611,6 +616,7 @@ export const SolarCalculator: React.FC = () => {
                 mapContainerStyle={{ width: '100%', height: '100%', borderRadius: '1rem' }}
                 center={{ lat: latitude, lng: longitude }}
                 zoom={20}
+                onClick={handleMapClick}
                 options={{
                   mapTypeId: 'satellite',
                   tilt: 45,
@@ -710,13 +716,11 @@ export const SolarCalculator: React.FC = () => {
           {/* Top Info Banner */}
           <div className="relative z-30 flex justify-between items-start pointer-events-none p-2">
             <span className="px-3 py-1 bg-slate-900/95 text-slate-200 text-xs font-mono rounded-lg border border-slate-700 shadow-md">
-              🛰️ Google Maps Satellite: {latitude.toFixed(4)}°N, {longitude.toFixed(4)}°W
+              🛰️ Roof Center: {latitude.toFixed(4)}°N, {longitude.toFixed(4)}°W
             </span>
-            {fetchingInsights && (
-              <span className="px-3 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg animate-pulse shadow-md">
-                Analyzing Building & Solar Array...
-              </span>
-            )}
+            <span className="px-3 py-1 bg-amber-500/90 text-slate-950 text-xs font-bold rounded-lg shadow-md">
+              💡 Click map to pick another building roof
+            </span>
           </div>
 
           {/* Bottom Info Banner */}

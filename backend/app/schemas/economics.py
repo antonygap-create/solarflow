@@ -91,6 +91,18 @@ class EconomicsResponse(BaseModel):
         default=0.0,
         description="Battery storage hardware & installation cost in USD"
     )
+    annual_om_cost_usd: float = Field(
+        default=0.0,
+        description="Annual operations & maintenance cost ($30/kW/yr) in USD"
+    )
+    inverter_replacement_cost_usd: float = Field(
+        default=0.0,
+        description="Inverter replacement cost at Year 12 ($150/kW) in USD"
+    )
+    co2_saved_tons_25_years: float = Field(
+        default=0.0,
+        description="Estimated 25-year CO2 offset in metric tons (0.385 kg/kWh)"
+    )
     estimated_annual_savings: float = Field(
         ...,
         description="Estimated Year 1 annual utility bill savings in USD, rounded to 2 decimal places"

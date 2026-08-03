@@ -42,6 +42,9 @@ export interface EconomicsRequest {
 export interface EconomicsResponse {
   total_system_cost: number;
   battery_cost_usd?: number;
+  annual_om_cost_usd?: number;
+  inverter_replacement_cost_usd?: number;
+  co2_saved_tons_25_years?: number;
   estimated_annual_savings: number;
   payback_period_years: number;
   roi_25_years_percent: number;

@@ -839,6 +839,12 @@ export const SolarCalculator: React.FC = () => {
             </div>
 
             <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60">
+              <span className="text-xs text-slate-400">30% Federal ITC Tax Credit</span>
+              <p className="text-2xl font-bold text-teal-400">${(economicsResult.total_system_cost * 0.30).toLocaleString()}</p>
+              <span className="text-[10px] text-teal-300 font-mono block mt-1">Net Cost: ${(economicsResult.total_system_cost * 0.70).toLocaleString()}</span>
+            </div>
+
+            <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60">
               <span className="text-xs text-slate-400">Annual Utility Savings</span>
               <p className="text-2xl font-bold text-emerald-400">${economicsResult.estimated_annual_savings.toLocaleString()} <span className="text-xs font-normal">/yr</span></p>
             </div>
@@ -856,6 +862,21 @@ export const SolarCalculator: React.FC = () => {
             <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60">
               <span className="text-xs text-slate-400">Self-Consumption Ratio</span>
               <p className="text-2xl font-bold text-purple-400">{(economicsResult.self_consumption_ratio * 100).toFixed(1)}%</p>
+            </div>
+
+            <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60">
+              <span className="text-xs text-slate-400">25-Year CO2 Offset</span>
+              <p className="text-2xl font-bold text-green-400">{economicsResult.co2_saved_tons_25_years ?? 0} <span className="text-xs font-normal">Tons</span></p>
+            </div>
+
+            <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60">
+              <span className="text-xs text-slate-400">Annual O&M Benchmark</span>
+              <p className="text-lg font-bold text-slate-300 mt-1">${economicsResult.annual_om_cost_usd ?? 0}/yr <span className="text-[10px] font-normal text-slate-400">($30/kW)</span></p>
+            </div>
+
+            <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60">
+              <span className="text-xs text-slate-400">Year 12 Inverter Replace</span>
+              <p className="text-lg font-bold text-slate-300 mt-1">${economicsResult.inverter_replacement_cost_usd ?? 0} <span className="text-[10px] font-normal text-slate-400">($150/kW)</span></p>
             </div>
 
             <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700/60">

@@ -1,0 +1,54 @@
+name: Deploy Backend to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**' # Запуск деплою лише при змінах у папці бекенду
+      - '.github/workflows/deploy-backend.yml'
+
+env:
+  PROJECT_ID: solarbot-v0
+  REGION: us-central1
+  GAR_LOCATION: us-central1-docker.pkg.dev/solarbot-v0/solarflow-repo
+  SERVICE: solarflow-backend
+  IMAGE: solarflow-backend:${{ github.sha }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: '${{ secrets.WIF_PROVIDER }}'
+          service_account: '${{ secrets.SA_EMAIL }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Authenticate Docker to Artifact Registry
+        run: |-
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and Push Docker Image
+        working-directory: ./backend
+        run: |-
+          docker build -t ${{ env.GAR_LOCATION }}/${{ env.IMAGE }} .
+          docker push ${{ env.GAR_LOCATION }}/${{ env.IMAGE }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.REGION }}
+          image: ${{ env.GAR_LOCATION }}/${{ env.IMAGE }}

@@ -50,6 +50,7 @@ from app.solar_packer import SolarPacker, PanelConfig
 from app.energy_yield import EnergyYieldCalculator, SystemSpecs
 from app.financials import calculate_financial_metrics, calculate_year_1_savings
 from app.validators import validate_and_normalize_us_phone
+from app.routers.solar_generation import router as solar_generation_router
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -57,6 +58,8 @@ app = FastAPI(
     description="Dual-interface API: Public B2C Lead Generation & Protected B2B Manager Dashboard.",
     version="2.0.0"
 )
+
+app.include_router(solar_generation_router)
 
 # Task 4: Strict CORS Security Configuration
 raw_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000")

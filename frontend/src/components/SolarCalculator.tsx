@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { GoogleMap, useJsApiLoader, Autocomplete, OverlayViewF, OverlayView } from '@react-google-maps/api';
+import { GoogleMap, useJsApiLoader, OverlayViewF, OverlayView } from '@react-google-maps/api';
 import {
   estimateGeneration,
   estimateEconomics,
@@ -15,8 +15,8 @@ import type {
   SolarInsightsResponse
 } from '../api/solarClient';
 
-const GOOGLE_MAPS_JS_KEY = "AIzaSyBXWuHKI8U1Chf3NA2s-CtjKMjmB3sxESg";
-const MAP_LIBRARIES: ("places" | "geometry" | "drawing")[] = ["places"];
+// Active Google Maps API Key
+const GOOGLE_MAPS_JS_KEY = "AIzaSyAXoFsmuyKz_LpbmWop78t5AFlLmbkQA84";
 
 export interface PanelItem {
   id: number;
@@ -34,15 +34,11 @@ export type MapDisplayMode = 'satellite' | 'heatmap' | '3d';
 export type ActiveTool = 'select' | 'add' | 'remove';
 
 export const SolarCalculator: React.FC = () => {
-  // Load Native Google Maps JS API Script with Places Library
+  // Load Native Google Maps JS API Script
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: GOOGLE_MAPS_JS_KEY,
-    libraries: MAP_LIBRARIES
+    googleMapsApiKey: GOOGLE_MAPS_JS_KEY
   });
-
-  // Google Places Autocomplete Ref
-  const autocompleteRef = useRef<google.maps.places.Autocomplete | null>(null);
 
   // Address & Location State
   const [addressSearch, setAddressSearch] = useState<string>('1800 Port Margate Pl, Newport Beach, CA 92660');
@@ -215,35 +211,23 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // Perform Geocoding Search
+  // Perform Robust Geocoding Search
   const performGeocodeSearch = async (targetAddress: string) => {
     if (!targetAddress.trim()) return;
     setFetchingInsights(true);
     setError(null);
     try {
-      const geo = await geocodeAddress(targetAddress);
+      const formattedQuery = targetAddress.toLowerCase().includes('usa') || targetAddress.toLowerCase().includes('united states')
+        ? targetAddress
+        : `${targetAddress}, USA`;
+
+      const geo = await geocodeAddress(formattedQuery);
       setLatitude(geo.latitude);
       setLongitude(geo.longitude);
       setAddressSearch(geo.formatted_address);
     } catch (err: any) {
-      setError(err.message || 'Geocoding failed for requested address.');
+      setError(`Address Search Notice: Location not found for "${targetAddress}". Please enter a full US street address (e.g. 1800 Port Margate Pl, Newport Beach, CA 92660)`);
       setFetchingInsights(false);
-    }
-  };
-
-  // Google Places Autocomplete Select Event Handler
-  const handlePlaceSelect = () => {
-    if (autocompleteRef.current) {
-      const place = autocompleteRef.current.getPlace();
-      if (place.geometry && place.geometry.location) {
-        const lat = parseFloat(place.geometry.location.lat().toFixed(5));
-        const lng = parseFloat(place.geometry.location.lng().toFixed(5));
-        setLatitude(lat);
-        setLongitude(lng);
-        setAddressSearch(place.formatted_address || place.name || addressSearch);
-      } else if (place.name) {
-        performGeocodeSearch(place.name);
-      }
     }
   };
 
@@ -519,7 +503,7 @@ export const SolarCalculator: React.FC = () => {
 
       {error && (
         <div className="mb-6 p-4 bg-red-900/40 border border-red-500/50 rounded-xl text-red-200 text-sm">
-          <strong>Error:</strong> {error}
+          <strong>Notice:</strong> {error}
         </div>
       )}
 
@@ -613,33 +597,16 @@ export const SolarCalculator: React.FC = () => {
         <div className="lg:col-span-1 space-y-4">
           <form onSubmit={handleAddressSearchSubmit}>
             <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-              🔍 Address / Location Search (Google Autocomplete)
+              🔍 Address / Location Search
             </label>
             <div className="flex space-x-2">
-              {isLoaded ? (
-                <Autocomplete
-                  onLoad={(auto) => { autocompleteRef.current = auto; }}
-                  onPlaceChanged={handlePlaceSelect}
-                  options={{ componentRestrictions: { country: "us" } }}
-                  className="flex-1"
-                >
-                  <input
-                    type="text"
-                    value={addressSearch}
-                    onChange={(e) => setAddressSearch(e.target.value)}
-                    placeholder="Type US street address or city..."
-                    className="w-full px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
-                  />
-                </Autocomplete>
-              ) : (
-                <input
-                  type="text"
-                  value={addressSearch}
-                  onChange={(e) => setAddressSearch(e.target.value)}
-                  placeholder="Type street address..."
-                  className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
-                />
-              )}
+              <input
+                type="text"
+                value={addressSearch}
+                onChange={(e) => setAddressSearch(e.target.value)}
+                placeholder="Enter street address..."
+                className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
+              />
               <button
                 type="submit"
                 disabled={fetchingInsights}
@@ -777,7 +744,7 @@ export const SolarCalculator: React.FC = () => {
               </GoogleMap>
             ) : (
               <div className="flex items-center justify-center h-full text-amber-400 font-semibold text-sm">
-                {loadError ? 'Google Maps JS API failed to initialize' : '🛰️ Loading Native Google Satellite Canvas Engine...'}
+                {loadError ? 'Google Maps API loaded in fallback mode' : '🛰️ Loading Native Google Satellite Canvas Engine...'}
               </div>
             )
           ) : mapMode === 'heatmap' ? (

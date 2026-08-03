@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { GoogleMap, useJsApiLoader, Autocomplete } from '@react-google-maps/api';
+import { GoogleMap, useJsApiLoader, Autocomplete, OverlayViewF, OverlayView } from '@react-google-maps/api';
 import {
   estimateGeneration,
   estimateEconomics,
@@ -135,7 +135,7 @@ export const SolarCalculator: React.FC = () => {
         );
       } else {
         setInsightsNotice(
-          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max). Click anywhere on map to select another building.`
+          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max). Solar panels anchored directly to roof.`
         );
       }
 
@@ -387,6 +387,87 @@ export const SolarCalculator: React.FC = () => {
     : Math.min(10, Math.ceil(Math.sqrt((maxPanelsCount || 88) * 1.1)));
   const rowsCount = Math.ceil((maxPanelsCount || 88) / colsCount);
 
+  // SVG Panel Grid Content
+  const renderPanelGridSVG = () => (
+    <div
+      className="transition-transform duration-500 shadow-2xl pointer-events-auto"
+      style={{
+        transform: mapMode === '3d'
+          ? `rotate(${azimuthDegrees - 180}deg) rotateX(45deg) scale(1.15)`
+          : `rotate(${azimuthDegrees - 180}deg) scale(${1 - pitchDegrees / 180})`,
+      }}
+    >
+      <svg
+        width={Math.min(520, colsCount * (orientation === 'LANDSCAPE' ? 40 : 30))}
+        height={Math.min(380, rowsCount * (orientation === 'LANDSCAPE' ? 30 : 54))}
+        className="overflow-visible drop-shadow-2xl"
+      >
+        <defs>
+          <linearGradient id="solarCellGradActive" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#1e3a8a" />
+            <stop offset="50%" stopColor="#2563eb" />
+            <stop offset="100%" stopColor="#1d4ed8" />
+          </linearGradient>
+
+          <linearGradient id="solarCellGradDisabled" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#334155" />
+            <stop offset="100%" stopColor="#1e293b" />
+          </linearGradient>
+
+          <linearGradient id="glassShimmer" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.15" />
+            <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.55" />
+            <stop offset="100%" stopColor="#ffffff" stopOpacity="0.15" />
+          </linearGradient>
+        </defs>
+
+        <g>
+          {panels.map((panel) => {
+            const w = orientation === 'LANDSCAPE' ? 38 : 28;
+            const h = orientation === 'LANDSCAPE' ? 28 : 50;
+            const stepX = w + 3;
+            const stepY = h + Math.round(rowPitchGapMeters * 10);
+
+            return (
+              <g
+                key={panel.id}
+                transform={`translate(${panel.col * stepX}, ${panel.row * stepY})`}
+                onClick={() => handlePanelClick(panel.id)}
+                className="cursor-pointer group"
+              >
+                <rect
+                  x="1"
+                  y="1"
+                  width={w}
+                  height={h}
+                  rx="2.5"
+                  fill={panel.active ? "url(#solarCellGradActive)" : "url(#solarCellGradDisabled)"}
+                  stroke={panel.active ? "#38bdf8" : "#64748b"}
+                  strokeWidth={panel.active ? "1.5" : "1"}
+                  className="transition-colors duration-200 group-hover:stroke-amber-400"
+                />
+
+                {panel.active && (
+                  <>
+                    <line x1="1" y1={Math.round(h / 3)} x2={w} y2={Math.round(h / 3)} stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
+                    <line x1="1" y1={Math.round((h * 2) / 3)} x2={w} y2={Math.round((h * 2) / 3)} stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
+                    <line x1={Math.round(w / 3)} y1="1" x2={Math.round(w / 3)} y2={h} stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
+                    <line x1={Math.round((w * 2) / 3)} y1="1" x2={Math.round((w * 2) / 3)} y2={h} stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
+                    <rect x="2" y="2" width={w - 2} height={h - 2} fill="url(#glassShimmer)" pointerEvents="none" />
+                  </>
+                )}
+
+                {!panel.active && (
+                  <line x1="3" y1="3" x2={w - 3} y2={h - 3} stroke="#ef4444" strokeWidth="1.5" strokeOpacity="0.8" />
+                )}
+              </g>
+            );
+          })}
+        </g>
+      </svg>
+    </div>
+  );
+
   return (
     <div className="max-w-7xl mx-auto p-6 bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-800 my-8">
       {/* Top Navigation & App Header */}
@@ -394,8 +475,8 @@ export const SolarCalculator: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span className="text-4xl">☀️</span>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & Google Places Autocomplete Engine</h2>
-            <p className="text-slate-400 text-sm">Real-time US Address Autocomplete, Google Solar Flux Heatmap & 3D Roof Mesh</p>
+            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & Roof Anchored Array Engine</h2>
+            <p className="text-slate-400 text-sm">Panels Anchored Directly to Building Roof via OverlayViewF</p>
           </div>
         </div>
 
@@ -684,7 +765,16 @@ export const SolarCalculator: React.FC = () => {
                   zoomControl: true,
                   rotateControl: true
                 }}
-              />
+              >
+                <OverlayViewF
+                  position={{ lat: latitude, lng: longitude }}
+                  mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                >
+                  <div className="relative -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
+                    {renderPanelGridSVG()}
+                  </div>
+                </OverlayViewF>
+              </GoogleMap>
             ) : (
               <div className="flex items-center justify-center h-full text-amber-400 font-semibold text-sm">
                 {loadError ? 'Google Maps JS API failed to initialize' : '🛰️ Loading Native Google Satellite Canvas Engine...'}
@@ -700,7 +790,16 @@ export const SolarCalculator: React.FC = () => {
                   zoom={20}
                   onClick={handleMapClick}
                   options={{ mapTypeId: 'satellite', disableDefaultUI: true }}
-                />
+                >
+                  <OverlayViewF
+                    position={{ lat: latitude, lng: longitude }}
+                    mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                  >
+                    <div className="relative -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
+                      {renderPanelGridSVG()}
+                    </div>
+                  </OverlayViewF>
+                </GoogleMap>
               )}
               <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-500/80 via-red-600/60 to-blue-900/40 pointer-events-none"></div>
               <div className="absolute top-4 left-4 z-30 px-3 py-1.5 bg-slate-900/90 border border-amber-500/50 rounded-lg text-amber-300 text-xs font-mono">
@@ -714,89 +813,11 @@ export const SolarCalculator: React.FC = () => {
               <div className="absolute top-4 left-4 z-30 px-3 py-1.5 bg-indigo-950/90 border border-indigo-500/50 rounded-lg text-indigo-300 text-xs font-mono">
                 🧊 3D Solar Roof Mesh & PV Array Perspective View
               </div>
+              <div className="absolute inset-0 flex items-center justify-center p-4">
+                {renderPanelGridSVG()}
+              </div>
             </div>
           )}
-
-          {/* Interactive Solar Panel Placement Canvas */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-auto p-4 z-20">
-            <div
-              className="transition-transform duration-500 shadow-2xl"
-              style={{
-                transform: mapMode === '3d'
-                  ? `rotate(${azimuthDegrees - 180}deg) rotateX(45deg) scale(1.15)`
-                  : `rotate(${azimuthDegrees - 180}deg) scale(${1 - pitchDegrees / 180})`,
-              }}
-            >
-              <svg
-                width={Math.min(520, colsCount * (orientation === 'LANDSCAPE' ? 40 : 30))}
-                height={Math.min(380, rowsCount * (orientation === 'LANDSCAPE' ? 30 : 54))}
-                className="overflow-visible"
-              >
-                <defs>
-                  <linearGradient id="solarCellGradActive" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#1e3a8a" />
-                    <stop offset="50%" stopColor="#2563eb" />
-                    <stop offset="100%" stopColor="#1d4ed8" />
-                  </linearGradient>
-
-                  <linearGradient id="solarCellGradDisabled" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#334155" />
-                    <stop offset="100%" stopColor="#1e293b" />
-                  </linearGradient>
-
-                  <linearGradient id="glassShimmer" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#ffffff" stopOpacity="0.1" />
-                    <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.45" />
-                    <stop offset="100%" stopColor="#ffffff" stopOpacity="0.1" />
-                  </linearGradient>
-                </defs>
-
-                <g>
-                  {panels.map((panel) => {
-                    const w = orientation === 'LANDSCAPE' ? 38 : 28;
-                    const h = orientation === 'LANDSCAPE' ? 28 : 50;
-                    const stepX = w + 3;
-                    const stepY = h + Math.round(rowPitchGapMeters * 10);
-
-                    return (
-                      <g
-                        key={panel.id}
-                        transform={`translate(${panel.col * stepX}, ${panel.row * stepY})`}
-                        onClick={() => handlePanelClick(panel.id)}
-                        className="cursor-pointer group"
-                      >
-                        <rect
-                          x="1"
-                          y="1"
-                          width={w}
-                          height={h}
-                          rx="2.5"
-                          fill={panel.active ? "url(#solarCellGradActive)" : "url(#solarCellGradDisabled)"}
-                          stroke={panel.active ? "#38bdf8" : "#64748b"}
-                          strokeWidth={panel.active ? "1.5" : "1"}
-                          className="transition-colors duration-200 group-hover:stroke-amber-400"
-                        />
-
-                        {panel.active && (
-                          <>
-                            <line x1="1" y1={Math.round(h / 3)} x2={w} y2={Math.round(h / 3)} stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
-                            <line x1="1" y1={Math.round((h * 2) / 3)} x2={w} y2={Math.round((h * 2) / 3)} stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
-                            <line x1={Math.round(w / 3)} y1="1" x2={Math.round(w / 3)} y2={h} stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
-                            <line x1={Math.round((w * 2) / 3)} y1="1" x2={Math.round((w * 2) / 3)} y2={h} stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
-                            <rect x="2" y="2" width={w - 2} height={h - 2} fill="url(#glassShimmer)" pointerEvents="none" />
-                          </>
-                        )}
-
-                        {!panel.active && (
-                          <line x1="3" y1="3" x2={w - 3} y2={h - 3} stroke="#ef4444" strokeWidth="1.5" strokeOpacity="0.8" />
-                        )}
-                      </g>
-                    );
-                  })}
-                </g>
-              </svg>
-            </div>
-          </div>
 
           {/* Top Info Banner */}
           <div className="relative z-30 flex justify-between items-start pointer-events-none p-2">

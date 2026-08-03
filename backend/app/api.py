@@ -67,15 +67,12 @@ app.include_router(economics_router)
 app.include_router(proposal_router)
 app.include_router(solar_insights_router)
 
-# Task 4: Strict CORS Security Configuration
-raw_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000")
-allowed_origins = [origin.strip() for origin in raw_cors_origins.split(",") if origin.strip()]
-
+# Task 4: Permissive CORS Configuration for All Production Domains
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 

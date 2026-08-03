@@ -16,14 +16,14 @@ import type {
 
 export const SolarCalculator: React.FC = () => {
   // Address & Location State
-  const [addressSearch, setAddressSearch] = useState<string>('Los Angeles, CA');
-  const [latitude, setLatitude] = useState<number>(34.0522);
-  const [longitude, setLongitude] = useState<number>(-118.2437);
+  const [addressSearch, setAddressSearch] = useState<string>('1800 Port Margate Pl, Newport Beach, CA 92660');
+  const [latitude, setLatitude] = useState<number>(33.62588);
+  const [longitude, setLongitude] = useState<number>(-117.85865);
 
   // Roof & Technical Parameters
-  const [roofAreaSqm, setRoofAreaSqm] = useState<number>(50);
-  const [pitchDegrees, setPitchDegrees] = useState<number>(20);
-  const [azimuthDegrees, setAzimuthDegrees] = useState<number>(180);
+  const [roofAreaSqm, setRoofAreaSqm] = useState<number>(172.79);
+  const [pitchDegrees, setPitchDegrees] = useState<number>(23.2);
+  const [azimuthDegrees, setAzimuthDegrees] = useState<number>(9.5);
   const [annualConsumptionKwh, setAnnualConsumptionKwh] = useState<number>(12000);
   const [customerEmail, setCustomerEmail] = useState<string>('');
 
@@ -38,11 +38,12 @@ export const SolarCalculator: React.FC = () => {
   const [economicsResult, setEconomicsResult] = useState<EconomicsResponse | null>(null);
   const [savedProposal, setSavedProposal] = useState<ProposalRead | null>(null);
 
-  // 1. Fetch Google Solar Insights when Coordinates Change
-  const fetchInsights = useCallback(async (lat: number, lng: number) => {
+  // 1. Fetch Google Solar Insights & Auto-Calculate when Coordinates Change
+  const fetchInsightsAndCalculate = useCallback(async (lat: number, lng: number) => {
     setFetchingInsights(true);
     setInsightsNotice(null);
     try {
+      // Step A: Fetch Google Solar API Building Insights
       const insights: SolarInsightsResponse = await getSolarInsights(lat, lng);
       setRoofAreaSqm(insights.roof_area_sqm);
       setPitchDegrees(insights.pitch_degrees);
@@ -57,16 +58,38 @@ export const SolarCalculator: React.FC = () => {
           `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max).`
         );
       }
+
+      // Step B: Auto-Calculate Solar Generation
+      const genRes = await estimateGeneration({
+        latitude: Number(lat),
+        longitude: Number(lng),
+        roof_area_sqm: Number(insights.roof_area_sqm),
+        azimuth: Number(insights.azimuth_degrees),
+        tilt: Number(insights.pitch_degrees)
+      });
+      setGenerationResult(genRes);
+
+      // System Capacity (kW) = Roof Area (m²) * 0.20 efficiency ratio
+      const estimatedCapacityKw = Number(insights.roof_area_sqm) * 0.20;
+
+      // Step C: Auto-Calculate Financial Economics
+      const econRes = await estimateEconomics({
+        system_capacity_kw: estimatedCapacityKw,
+        annual_energy_kwh: genRes.estimated_annual_kwh,
+        annual_consumption_kwh: Number(annualConsumptionKwh),
+        tariff_type: 'NEM3'
+      });
+      setEconomicsResult(econRes);
     } catch (err: any) {
       setInsightsNotice('⚠️ Could not fetch Google Solar Insights. Default values applied.');
     } finally {
       setFetchingInsights(false);
     }
-  }, []);
+  }, [annualConsumptionKwh]);
 
   useEffect(() => {
-    fetchInsights(latitude, longitude);
-  }, [latitude, longitude, fetchInsights]);
+    fetchInsightsAndCalculate(latitude, longitude);
+  }, [latitude, longitude, fetchInsightsAndCalculate]);
 
   // 2. HTML5 Geolocation Button Handler
   const handleUseMyLocation = () => {
@@ -77,8 +100,8 @@ export const SolarCalculator: React.FC = () => {
     setFetchingInsights(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        const lat = parseFloat(position.coords.latitude.toFixed(4));
-        const lng = parseFloat(position.coords.longitude.toFixed(4));
+        const lat = parseFloat(position.coords.latitude.toFixed(5));
+        const lng = parseFloat(position.coords.longitude.toFixed(5));
         setLatitude(lat);
         setLongitude(lng);
         setAddressSearch(`Current Location (${lat}, ${lng})`);
@@ -107,7 +130,7 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // 4. Calculate Generation & Economics Sequentially
+  // 4. Manual Calculate Submit Handler
   const handleCalculate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -115,7 +138,6 @@ export const SolarCalculator: React.FC = () => {
     setSavedProposal(null);
 
     try {
-      // Step A: Calculate Solar Generation
       const genRes = await estimateGeneration({
         latitude: Number(latitude),
         longitude: Number(longitude),
@@ -125,10 +147,8 @@ export const SolarCalculator: React.FC = () => {
       });
       setGenerationResult(genRes);
 
-      // Estimated Capacity (kW) = Roof Area (m²) * 0.20 efficiency ratio
       const estimatedCapacityKw = Number(roofAreaSqm) * 0.20;
 
-      // Step B: Calculate Financial Economics
       const econRes = await estimateEconomics({
         system_capacity_kw: estimatedCapacityKw,
         annual_energy_kwh: genRes.estimated_annual_kwh,
@@ -205,12 +225,13 @@ export const SolarCalculator: React.FC = () => {
                 type="text"
                 value={addressSearch}
                 onChange={(e) => setAddressSearch(e.target.value)}
-                placeholder="Enter address or city..."
+                placeholder="Enter street address..."
                 className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
               />
               <button
                 type="submit"
-                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-sm transition"
+                disabled={fetchingInsights}
+                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-sm transition disabled:opacity-50"
               >
                 Search
               </button>
@@ -239,7 +260,7 @@ export const SolarCalculator: React.FC = () => {
             title="Roof Satellite View Map"
             width="100%"
             height="100%"
-            className="absolute inset-0 w-full h-full border-0 rounded-2xl opacity-75 hover:opacity-100 transition duration-300 pointer-events-auto"
+            className="absolute inset-0 w-full h-full border-0 rounded-2xl opacity-85 hover:opacity-100 transition duration-300 pointer-events-auto"
             loading="lazy"
             src={`https://maps.google.com/maps?q=${latitude},${longitude}&t=k&z=19&ie=UTF8&iwloc=&output=embed`}
           ></iframe>
@@ -250,7 +271,7 @@ export const SolarCalculator: React.FC = () => {
             </span>
             {fetchingInsights && (
               <span className="px-3 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg animate-pulse shadow-md">
-                Searching & Fetching Solar Insights...
+                Analyzing Building & Solar Potential...
               </span>
             )}
           </div>
@@ -346,7 +367,7 @@ export const SolarCalculator: React.FC = () => {
             disabled={loading || fetchingInsights}
             className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold rounded-xl shadow-lg transition duration-200 disabled:opacity-50 text-base"
           >
-            {loading ? 'Simulating Solar Yield & Financials...' : '⚡ Calculate Solar Potential'}
+            {loading ? 'Simulating Solar Yield & Financials...' : '⚡ Recalculate Solar Potential'}
           </button>
         </div>
       </form>

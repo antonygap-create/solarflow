@@ -240,3 +240,34 @@ class SolarLayout(Base):
 
     def __repr__(self) -> str:
         return f"<SolarLayout(panels={self.total_panels}, capacity={self.total_capacity_kwp}kWp, yield={self.annual_generation_kwh}kWh)>"
+
+
+class Proposal(Base):
+    """
+    Commercial Solar Proposal Entity.
+    Stores generation & economic calculation results as a lead/proposal record.
+    """
+    __tablename__ = "proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+    customer_email: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True
+    )
+    latitude: Mapped[float] = mapped_column(Float, nullable=False)
+    longitude: Mapped[float] = mapped_column(Float, nullable=False)
+    system_capacity_kw: Mapped[float] = mapped_column(Float, nullable=False)
+    annual_generation_kwh: Mapped[float] = mapped_column(Float, nullable=False)
+    total_system_cost: Mapped[float] = mapped_column(Float, nullable=False)
+    estimated_annual_savings: Mapped[float] = mapped_column(Float, nullable=False)
+    roi_25_years_percent: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )

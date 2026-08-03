@@ -53,6 +53,7 @@ from app.validators import validate_and_normalize_us_phone
 from app.routers.solar_generation import router as solar_generation_router
 from app.routers.economics import router as economics_router
 from app.routers.proposal import router as proposal_router
+from app.routers.solar import router as solar_insights_router
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -64,6 +65,7 @@ app = FastAPI(
 app.include_router(solar_generation_router)
 app.include_router(economics_router)
 app.include_router(proposal_router)
+app.include_router(solar_insights_router)
 
 # Task 4: Strict CORS Security Configuration
 raw_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:3000")

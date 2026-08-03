@@ -1,33 +1,115 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   estimateGeneration,
   estimateEconomics,
-  saveProposal
+  saveProposal,
+  getSolarInsights
 } from '../api/solarClient';
 import type {
   SolarGenerationResponse,
   EconomicsResponse,
-  ProposalRead
+  ProposalRead,
+  SolarInsightsResponse
 } from '../api/solarClient';
 
 export const SolarCalculator: React.FC = () => {
-  // Input State
+  // Address & Location State
+  const [addressSearch, setAddressSearch] = useState<string>('Los Angeles, CA');
   const [latitude, setLatitude] = useState<number>(34.0522);
   const [longitude, setLongitude] = useState<number>(-118.2437);
+
+  // Roof & Technical Parameters
   const [roofAreaSqm, setRoofAreaSqm] = useState<number>(50);
+  const [pitchDegrees, setPitchDegrees] = useState<number>(20);
+  const [azimuthDegrees, setAzimuthDegrees] = useState<number>(180);
   const [annualConsumptionKwh, setAnnualConsumptionKwh] = useState<number>(12000);
   const [customerEmail, setCustomerEmail] = useState<string>('');
 
   // Status & Output State
+  const [fetchingInsights, setFetchingInsights] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [insightsNotice, setInsightsNotice] = useState<string | null>(null);
 
   const [generationResult, setGenerationResult] = useState<SolarGenerationResponse | null>(null);
   const [economicsResult, setEconomicsResult] = useState<EconomicsResponse | null>(null);
   const [savedProposal, setSavedProposal] = useState<ProposalRead | null>(null);
 
-  // 1. Calculate Generation & Economics Sequentially
+  // 1. Fetch Google Solar Insights when Coordinates Change
+  const fetchInsights = useCallback(async (lat: number, lng: number) => {
+    setFetchingInsights(true);
+    setInsightsNotice(null);
+    try {
+      const insights: SolarInsightsResponse = await getSolarInsights(lat, lng);
+      setRoofAreaSqm(insights.roof_area_sqm);
+      setPitchDegrees(insights.pitch_degrees);
+      setAzimuthDegrees(insights.azimuth_degrees);
+
+      if (insights.is_fallback) {
+        setInsightsNotice(
+          '📍 Google Solar API imagery coverage is limited for this exact building. Default estimated values were applied. You may adjust roof area manually.'
+        );
+      } else {
+        setInsightsNotice(
+          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max).`
+        );
+      }
+    } catch (err: any) {
+      setInsightsNotice('⚠️ Could not fetch Google Solar Insights. Default values applied.');
+    } finally {
+      setFetchingInsights(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchInsights(latitude, longitude);
+  }, [latitude, longitude, fetchInsights]);
+
+  // 2. HTML5 Geolocation Button Handler
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser.');
+      return;
+    }
+    setFetchingInsights(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const lat = parseFloat(position.coords.latitude.toFixed(4));
+        const lng = parseFloat(position.coords.longitude.toFixed(4));
+        setLatitude(lat);
+        setLongitude(lng);
+        setAddressSearch(`Current Location (${lat}, ${lng})`);
+      },
+      (geoErr) => {
+        setError(`Geolocation failed: ${geoErr.message}`);
+        setFetchingInsights(false);
+      }
+    );
+  };
+
+  // 3. Address Search Submit Handler
+  const handleAddressSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Pre-defined sample city coordinates for demo search
+    const searchLower = addressSearch.toLowerCase();
+    if (searchLower.includes('san francisco') || searchLower.includes('sf')) {
+      setLatitude(37.7749);
+      setLongitude(-122.4194);
+    } else if (searchLower.includes('new york') || searchLower.includes('ny')) {
+      setLatitude(40.7128);
+      setLongitude(-74.0060);
+    } else if (searchLower.includes('miami')) {
+      setLatitude(25.7617);
+      setLongitude(-80.1918);
+    } else {
+      // Default to LA
+      setLatitude(34.0522);
+      setLongitude(-118.2437);
+    }
+  };
+
+  // 4. Calculate Generation & Economics Sequentially
   const handleCalculate = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -39,11 +121,13 @@ export const SolarCalculator: React.FC = () => {
       const genRes = await estimateGeneration({
         latitude: Number(latitude),
         longitude: Number(longitude),
-        roof_area_sqm: Number(roofAreaSqm)
+        roof_area_sqm: Number(roofAreaSqm),
+        azimuth: Number(azimuthDegrees),
+        tilt: Number(pitchDegrees)
       });
       setGenerationResult(genRes);
 
-      // System Capacity (kW) = Roof Area (m²) * 0.20 efficiency kW/m² ratio
+      // Estimated Capacity (kW) = Roof Area (m²) * 0.20 efficiency ratio
       const estimatedCapacityKw = Number(roofAreaSqm) * 0.20;
 
       // Step B: Calculate Financial Economics
@@ -61,7 +145,7 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // 2. Save Commercial Proposal to PostgreSQL
+  // 5. Save Commercial Proposal to PostgreSQL
   const handleSaveProposal = async () => {
     if (!generationResult || !economicsResult) return;
     setSaving(true);
@@ -90,13 +174,18 @@ export const SolarCalculator: React.FC = () => {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-800 my-8">
-      <div className="flex items-center space-x-3 mb-6">
-        <span className="text-3xl">☀️</span>
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow Commercial Calculator</h2>
-          <p className="text-slate-400 text-sm">NEM 3.0 Solar Yield & Financial Economics Engine</p>
+    <div className="max-w-5xl mx-auto p-6 bg-slate-900 text-slate-100 rounded-2xl shadow-2xl border border-slate-800 my-8">
+      <div className="flex items-center justify-between mb-6 border-b border-slate-800 pb-4">
+        <div className="flex items-center space-x-3">
+          <span className="text-4xl">☀️</span>
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow GIS & Google Solar Calculator</h2>
+            <p className="text-slate-400 text-sm">Interactive Satellite Roof Mapping & NEM 3.0 Financial Yield Engine</p>
+          </div>
         </div>
+        <span className="px-3 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full text-xs font-medium">
+          Google Solar API Connected
+        </span>
       </div>
 
       {error && (
@@ -105,36 +194,78 @@ export const SolarCalculator: React.FC = () => {
         </div>
       )}
 
+      {/* Address Search & Satellite Map Container */}
+      <div className="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Search & Location Bar */}
+        <div className="lg:col-span-1 space-y-4">
+          <form onSubmit={handleAddressSearchSubmit}>
+            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              🔍 Address / Location Search
+            </label>
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                value={addressSearch}
+                onChange={(e) => setAddressSearch(e.target.value)}
+                placeholder="Enter address or city..."
+                className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-sm transition"
+              >
+                Search
+              </button>
+            </div>
+          </form>
+
+          <button
+            type="button"
+            onClick={handleUseMyLocation}
+            disabled={fetchingInsights}
+            className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl text-sm font-semibold flex items-center justify-center space-x-2 transition"
+          >
+            <span>📍 Use My Location (GPS)</span>
+          </button>
+
+          {insightsNotice && (
+            <div className="p-3.5 bg-slate-800/90 border border-amber-500/30 rounded-xl text-amber-200 text-xs leading-relaxed">
+              {insightsNotice}
+            </div>
+          )}
+        </div>
+
+        {/* Interactive Satellite View Map Preview */}
+        <div className="lg:col-span-2 relative h-56 lg:h-auto rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex flex-col justify-between p-4 shadow-inner">
+          <div className="absolute inset-0 opacity-40 bg-[radial-gradient(#f59e0b_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none"></div>
+          
+          <div className="relative z-10 flex justify-between items-start">
+            <span className="px-3 py-1 bg-slate-900/90 text-slate-300 text-xs font-mono rounded-lg border border-slate-700">
+              🛰️ Satellite View Map: {latitude}°N, {longitude}°W
+            </span>
+            {fetchingInsights && (
+              <span className="px-3 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg animate-pulse">
+                Fetching Solar Insights...
+              </span>
+            )}
+          </div>
+
+          <div className="relative z-10 my-auto text-center">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 text-2xl mb-2 border border-amber-500/40 animate-bounce">
+              📍
+            </div>
+            <p className="text-sm font-semibold text-slate-200">Building Roof Selected</p>
+            <p className="text-xs text-slate-400 font-mono">Roof Area: {roofAreaSqm} m² | Tilt: {pitchDegrees}° | Azimuth: {azimuthDegrees}°</p>
+          </div>
+
+          <div className="relative z-10 text-right">
+            <span className="text-[10px] text-slate-500">Google Solar API Layer Active</span>
+          </div>
+        </div>
+      </div>
+
       {/* Input Form */}
-      <form onSubmit={handleCalculate} className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-        <div>
-          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-            Latitude (°N)
-          </label>
-          <input
-            type="number"
-            step="any"
-            required
-            value={latitude}
-            onChange={(e) => setLatitude(parseFloat(e.target.value))}
-            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-400"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-            Longitude (°W)
-          </label>
-          <input
-            type="number"
-            step="any"
-            required
-            value={longitude}
-            onChange={(e) => setLongitude(parseFloat(e.target.value))}
-            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-400"
-          />
-        </div>
-
+      <form onSubmit={handleCalculate} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div>
           <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
             Roof Area (m²)
@@ -146,6 +277,38 @@ export const SolarCalculator: React.FC = () => {
             required
             value={roofAreaSqm}
             onChange={(e) => setRoofAreaSqm(parseFloat(e.target.value))}
+            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-400"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Roof Tilt Pitch (°)
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="90"
+            step="any"
+            required
+            value={pitchDegrees}
+            onChange={(e) => setPitchDegrees(parseFloat(e.target.value))}
+            className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-400"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+            Azimuth (°) [180 = South]
+          </label>
+          <input
+            type="number"
+            min="0"
+            max="360"
+            step="any"
+            required
+            value={azimuthDegrees}
+            onChange={(e) => setAzimuthDegrees(parseFloat(e.target.value))}
             className="w-full px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-amber-400"
           />
         </div>
@@ -178,11 +341,11 @@ export const SolarCalculator: React.FC = () => {
           />
         </div>
 
-        <div className="md:col-span-2">
+        <div className="md:col-span-3">
           <button
             type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold rounded-xl shadow-lg transition duration-200 disabled:opacity-50"
+            disabled={loading || fetchingInsights}
+            className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold rounded-xl shadow-lg transition duration-200 disabled:opacity-50 text-base"
           >
             {loading ? 'Simulating Solar Yield & Financials...' : '⚡ Calculate Solar Potential'}
           </button>

@@ -61,8 +61,32 @@ export interface ProposalRead extends ProposalCreate {
   created_at: string;
 }
 
+export interface SolarInsightsResponse {
+  latitude: number;
+  longitude: number;
+  roof_area_sqm: number;
+  max_panels_count: number;
+  pitch_degrees: number;
+  azimuth_degrees: number;
+  estimated_annual_kwh: number;
+  is_fallback: boolean;
+  solar_imagery_urls?: Record<string, any>;
+}
+
 /**
- * 1. POST /api/v1/estimate/generation
+ * 1. GET /api/v1/solar/insights?lat={lat}&lng={lng}
+ */
+export async function getSolarInsights(lat: number, lng: number): Promise<SolarInsightsResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/solar/insights?lat=${lat}&lng=${lng}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Solar Insights API failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
+/**
+ * 2. POST /api/v1/estimate/generation
  */
 export async function estimateGeneration(data: SolarGenerationRequest): Promise<SolarGenerationResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/estimate/generation`, {
@@ -84,7 +108,7 @@ export async function estimateGeneration(data: SolarGenerationRequest): Promise<
 }
 
 /**
- * 2. POST /api/v1/estimate/economics
+ * 3. POST /api/v1/estimate/economics
  */
 export async function estimateEconomics(data: EconomicsRequest): Promise<EconomicsResponse> {
   const response = await fetch(`${API_BASE_URL}/api/v1/estimate/economics`, {
@@ -105,7 +129,7 @@ export async function estimateEconomics(data: EconomicsRequest): Promise<Economi
 }
 
 /**
- * 3. POST /api/v1/proposals/
+ * 4. POST /api/v1/proposals/
  */
 export async function saveProposal(data: ProposalCreate): Promise<ProposalRead> {
   const response = await fetch(`${API_BASE_URL}/api/v1/proposals/`, {

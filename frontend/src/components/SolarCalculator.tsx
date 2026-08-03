@@ -16,7 +16,7 @@ import type {
 } from '../api/solarClient';
 
 // Active Google Maps API Key
-const GOOGLE_MAPS_JS_KEY = "AIzaSyAXoFsmuyKz_LpbmWop78t5AFlLmbkQA84";
+const GOOGLE_MAPS_JS_KEY = "AIzaSyCD60pY9r9AfuTxeUrrIaK-qZRzZoY4ZSw";
 
 export interface PanelItem {
   id: number;

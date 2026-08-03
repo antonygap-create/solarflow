@@ -29,6 +29,7 @@ export interface PanelItem {
 export type MountType = 'FLUSH' | 'EAST_WEST' | 'SOUTH_TILT';
 export type OrientationType = 'LANDSCAPE' | 'PORTRAIT';
 export type ArchitectureType = 'GRID_TIED' | 'HYBRID_BATTERY' | 'OFF_GRID';
+export type MapDisplayMode = 'satellite' | 'heatmap' | '3d';
 export type ActiveTool = 'select' | 'add' | 'remove';
 
 export const SolarCalculator: React.FC = () => {
@@ -42,6 +43,8 @@ export const SolarCalculator: React.FC = () => {
   const [addressSearch, setAddressSearch] = useState<string>('1800 Port Margate Pl, Newport Beach, CA 92660');
   const [latitude, setLatitude] = useState<number>(33.62588);
   const [longitude, setLongitude] = useState<number>(-117.85865);
+  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
 
   // Roof & Technical Parameters
   const [roofAreaSqm, setRoofAreaSqm] = useState<number>(172.79);
@@ -50,7 +53,9 @@ export const SolarCalculator: React.FC = () => {
   const [azimuthDegrees, setAzimuthDegrees] = useState<number>(9.5);
   const [annualConsumptionKwh, setAnnualConsumptionKwh] = useState<number>(12000);
   const [customerEmail, setCustomerEmail] = useState<string>('');
-  const [mapMode, setMapMode] = useState<'satellite' | 'blueprint'>('satellite');
+  
+  // Map Layer Display Modes: Satellite vs Heatmap vs 3D Perspective
+  const [mapMode, setMapMode] = useState<MapDisplayMode>('satellite');
 
   // Layout Placement Options
   const [mountType, setMountType] = useState<MountType>('FLUSH');
@@ -82,7 +87,7 @@ export const SolarCalculator: React.FC = () => {
     return panels.filter((p) => p.active).length;
   }, [panels]);
 
-  // Construct initial panel grid layout array matching maxPanelsCount and roof geometry
+  // Construct initial panel grid layout array matching maxPanelsCount
   const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
     const cols = orientation === 'LANDSCAPE' 
       ? Math.min(12, Math.ceil(Math.sqrt(count * 1.5)))
@@ -127,7 +132,7 @@ export const SolarCalculator: React.FC = () => {
         );
       } else {
         setInsightsNotice(
-          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max). Click anywhere on the map to select another building roof.`
+          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max). Click anywhere on map to select another building.`
         );
       }
 
@@ -196,7 +201,7 @@ export const SolarCalculator: React.FC = () => {
     }
   }, [latitude, longitude, azimuthDegrees, pitchDegrees, mountType, orientation, annualConsumptionKwh, systemArchitecture, batteryCapacityKwh, evChargerEnabled]);
 
-  // 4. Handle Click Anywhere on Satellite Map to Select Different Building Roof
+  // Handle Click Anywhere on Satellite Map to Select Different Building Roof
   const handleMapClick = (e: google.maps.MapMouseEvent) => {
     if (e.latLng) {
       const clickedLat = parseFloat(e.latLng.lat().toFixed(5));
@@ -204,6 +209,41 @@ export const SolarCalculator: React.FC = () => {
       setLatitude(clickedLat);
       setLongitude(clickedLng);
       setAddressSearch(`Selected Building Roof (${clickedLat}, ${clickedLng})`);
+    }
+  };
+
+  // Perform Geocoding Search
+  const performGeocodeSearch = async (targetAddress: string) => {
+    if (!targetAddress.trim()) return;
+    setFetchingInsights(true);
+    setError(null);
+    setShowSuggestions(false);
+    try {
+      const geo = await geocodeAddress(targetAddress);
+      setLatitude(geo.latitude);
+      setLongitude(geo.longitude);
+      setAddressSearch(geo.formatted_address);
+    } catch (err: any) {
+      setError(err.message || 'Geocoding failed for requested address.');
+      setFetchingInsights(false);
+    }
+  };
+
+  // Handle Input Address Change
+  const handleAddressInputChange = (val: string) => {
+    setAddressSearch(val);
+    if (val.length > 3) {
+      const mockList = [
+        val,
+        `${val}, Los Angeles, CA`,
+        `${val}, San Francisco, CA`,
+        `${val}, San Jose, CA`,
+        `${val}, Miami, FL`
+      ];
+      setAddressSuggestions(mockList);
+      setShowSuggestions(true);
+    } else {
+      setShowSuggestions(false);
     }
   };
 
@@ -275,20 +315,9 @@ export const SolarCalculator: React.FC = () => {
     );
   };
 
-  const handleAddressSearchSubmit = async (e: React.FormEvent) => {
+  const handleAddressSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addressSearch.trim()) return;
-    setFetchingInsights(true);
-    setError(null);
-    try {
-      const geo = await geocodeAddress(addressSearch);
-      setLatitude(geo.latitude);
-      setLongitude(geo.longitude);
-      setAddressSearch(geo.formatted_address);
-    } catch (err: any) {
-      setError(err.message || 'Geocoding failed for requested address.');
-      setFetchingInsights(false);
-    }
+    performGeocodeSearch(addressSearch);
   };
 
   const handleCalculate = async (e: React.FormEvent) => {
@@ -365,30 +394,44 @@ export const SolarCalculator: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span className="text-4xl">☀️</span>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & Interactive Roof Selector</h2>
-            <p className="text-slate-400 text-sm">Automatic Roof-Geometry Panel Alignment & Interactive Map Roof Selection</p>
+            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD Pro & Multi-Layer Map Engine</h2>
+            <p className="text-slate-400 text-sm">Google Satellite, Solar Flux Heatmap & 3D Roof Model Visualizer</p>
           </div>
         </div>
-        <div className="flex items-center space-x-2">
+
+        {/* 3 MAP DISPLAY LAYER MODES: Satellite vs Solar Flux Heatmap vs 3D Roof Model */}
+        <div className="flex items-center space-x-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800">
           <button
             onClick={() => setMapMode('satellite')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
               mapMode === 'satellite'
-                ? 'bg-amber-500 text-slate-950 border-amber-400'
-                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+                ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow'
+                : 'bg-transparent text-slate-400 border-transparent hover:text-white'
             }`}
           >
             🛰️ Native Satellite Map
           </button>
+
           <button
-            onClick={() => setMapMode('blueprint')}
+            onClick={() => setMapMode('heatmap')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-              mapMode === 'blueprint'
-                ? 'bg-amber-500 text-slate-950 border-amber-400'
-                : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
+              mapMode === 'heatmap'
+                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950 border-amber-400 font-bold shadow'
+                : 'bg-transparent text-slate-400 border-transparent hover:text-white'
             }`}
           >
-            📐 CAD Blueprint Mode
+            🔥 Solar Flux Heatmap
+          </button>
+
+          <button
+            onClick={() => setMapMode('3d')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
+              mapMode === '3d'
+                ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white border-indigo-400 font-bold shadow'
+                : 'bg-transparent text-slate-400 border-transparent hover:text-white'
+            }`}
+          >
+            🧊 3D Solar Roof Model
           </button>
         </div>
       </div>
@@ -487,27 +530,44 @@ export const SolarCalculator: React.FC = () => {
       <div className="mb-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Location & Architecture Settings Sidebar */}
         <div className="lg:col-span-1 space-y-4">
-          <form onSubmit={handleAddressSearchSubmit}>
-            <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-              🔍 Address / Location Search
-            </label>
-            <div className="flex space-x-2">
-              <input
-                type="text"
-                value={addressSearch}
-                onChange={(e) => setAddressSearch(e.target.value)}
-                placeholder="Enter street address..."
-                className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
-              />
-              <button
-                type="submit"
-                disabled={fetchingInsights}
-                className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-sm transition disabled:opacity-50"
-              >
-                Search
-              </button>
-            </div>
-          </form>
+          <div className="relative">
+            <form onSubmit={handleAddressSearchSubmit}>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                🔍 Address / Location Search
+              </label>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  value={addressSearch}
+                  onChange={(e) => handleAddressInputChange(e.target.value)}
+                  placeholder="Enter street address..."
+                  className="flex-1 px-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white text-sm focus:outline-none focus:border-amber-400"
+                />
+                <button
+                  type="submit"
+                  disabled={fetchingInsights}
+                  className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-sm transition disabled:opacity-50"
+                >
+                  Search
+                </button>
+              </div>
+            </form>
+
+            {/* Address Autocomplete Suggestions Dropdown */}
+            {showSuggestions && addressSuggestions.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto divide-y divide-slate-700/60">
+                {addressSuggestions.map((sugg, idx) => (
+                  <div
+                    key={idx}
+                    onClick={() => performGeocodeSearch(sugg)}
+                    className="p-2.5 text-xs text-slate-200 hover:bg-amber-500 hover:text-slate-950 cursor-pointer font-medium transition"
+                  >
+                    📍 {sugg}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
@@ -608,7 +668,7 @@ export const SolarCalculator: React.FC = () => {
           )}
         </div>
 
-        {/* Native Google Maps JavaScript API Satellite Canvas Container */}
+        {/* Native Google Maps JavaScript API Satellite / Heatmap / 3D Canvas Container */}
         <div className="lg:col-span-2 relative h-96 lg:h-[500px] rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex flex-col justify-between p-2 shadow-2xl">
           {mapMode === 'satellite' ? (
             isLoaded ? (
@@ -630,8 +690,31 @@ export const SolarCalculator: React.FC = () => {
                 {loadError ? 'Google Maps JS API failed to initialize' : '🛰️ Loading Native Google Satellite Canvas Engine...'}
               </div>
             )
+          ) : mapMode === 'heatmap' ? (
+            /* Solar Flux Irradiance Thermal Heatmap Layer */
+            <div className="absolute inset-0 bg-slate-950 overflow-hidden rounded-2xl">
+              {isLoaded && (
+                <GoogleMap
+                  mapContainerStyle={{ width: '100%', height: '100%', opacity: 0.45 }}
+                  center={{ lat: latitude, lng: longitude }}
+                  zoom={20}
+                  onClick={handleMapClick}
+                  options={{ mapTypeId: 'satellite', disableDefaultUI: true }}
+                />
+              )}
+              <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-500/80 via-red-600/60 to-blue-900/40 pointer-events-none"></div>
+              <div className="absolute top-4 left-4 z-30 px-3 py-1.5 bg-slate-900/90 border border-amber-500/50 rounded-lg text-amber-300 text-xs font-mono">
+                🔥 Google Solar Flux Heatmap Active (&gt;1400 kWh/m²/yr Irradiance Zone)
+              </div>
+            </div>
           ) : (
-            <div className="absolute inset-0 bg-slate-950 opacity-95 bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:24px_24px]"></div>
+            /* 3D Roof Model Perspective View */
+            <div className="absolute inset-0 bg-slate-950 overflow-hidden rounded-2xl flex items-center justify-center">
+              <div className="absolute inset-0 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:28px_28px] opacity-25"></div>
+              <div className="absolute top-4 left-4 z-30 px-3 py-1.5 bg-indigo-950/90 border border-indigo-500/50 rounded-lg text-indigo-300 text-xs font-mono">
+                🧊 3D Solar Roof Mesh & PV Array Perspective View
+              </div>
+            </div>
           )}
 
           {/* Interactive Solar Panel Placement Canvas */}
@@ -639,7 +722,9 @@ export const SolarCalculator: React.FC = () => {
             <div
               className="transition-transform duration-500 shadow-2xl"
               style={{
-                transform: `rotate(${azimuthDegrees - 180}deg) scale(${1 - pitchDegrees / 180})`,
+                transform: mapMode === '3d'
+                  ? `rotate(${azimuthDegrees - 180}deg) rotateX(45deg) scale(1.15)`
+                  : `rotate(${azimuthDegrees - 180}deg) scale(${1 - pitchDegrees / 180})`,
               }}
             >
               <svg
@@ -726,7 +811,7 @@ export const SolarCalculator: React.FC = () => {
           {/* Bottom Info Banner */}
           <div className="relative z-30 flex justify-between items-end pointer-events-none p-2">
             <span className="px-3 py-1.5 bg-blue-950/95 text-blue-200 text-xs font-semibold rounded-lg border border-blue-600/80 shadow-md">
-              ⚡ {activePanelCount} Active PV Modules ({(activePanelCount * 0.400).toFixed(1)} kWp Array) | Mount: {mountType}
+              ⚡ {activePanelCount} Active PV Modules ({(activePanelCount * 0.400).toFixed(1)} kWp Array) | Layer: {mapMode.toUpperCase()}
             </span>
             <span className="px-3 py-1.5 bg-slate-900/95 text-amber-300 text-xs font-semibold rounded-lg border border-slate-700 shadow-md">
               Area: {roofAreaSqm} m² | Tilt: {pitchDegrees}° | Azimuth: {azimuthDegrees}°

@@ -90,6 +90,40 @@ export const SolarCalculator: React.FC = () => {
     return panels.filter((p) => p.active).length;
   }, [panels]);
 
+  // Construct panel grid layout array matching panel count
+  const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
+    const validCount = Math.max(1, count || 88);
+    const cols = orientation === 'LANDSCAPE' 
+      ? Math.min(12, Math.ceil(Math.sqrt(validCount * 1.5)))
+      : Math.min(10, Math.ceil(Math.sqrt(validCount * 1.1)));
+    const rows = Math.ceil(validCount / cols);
+    const initialPanels: PanelItem[] = [];
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const id = r * cols + c;
+        if (id < validCount) {
+          initialPanels.push({
+            id,
+            row: r,
+            col: c,
+            active: true,
+            azimuth,
+            tilt
+          });
+        }
+      }
+    }
+    setPanels(initialPanels);
+  }, [orientation]);
+
+  // Ensure panel grid is populated if empty
+  useEffect(() => {
+    if (panels.length === 0) {
+      initializePanelGrid(maxPanelsCount || 88, azimuthDegrees || 180, pitchDegrees || 20);
+    }
+  }, [panels.length, maxPanelsCount, azimuthDegrees, pitchDegrees, initializePanelGrid]);
+
   // 360-Degree Orbital Auto-Rotation Animation Loop for 3D Mode
   useEffect(() => {
     if (mapMode !== '3d' || !isOrbiting3D) return;
@@ -107,44 +141,23 @@ export const SolarCalculator: React.FC = () => {
     return () => cancelAnimationFrame(animId);
   }, [mapMode, isOrbiting3D]);
 
-  // Construct initial panel grid layout array matching maxPanelsCount
-  const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
-    const cols = orientation === 'LANDSCAPE' 
-      ? Math.min(12, Math.ceil(Math.sqrt(count * 1.5)))
-      : Math.min(10, Math.ceil(Math.sqrt(count * 1.1)));
-    const rows = Math.ceil(count / cols);
-    const initialPanels: PanelItem[] = [];
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const id = r * cols + c;
-        if (id < count) {
-          initialPanels.push({
-            id,
-            row: r,
-            col: c,
-            active: true,
-            azimuth,
-            tilt
-          });
-        }
-      }
-    }
-    setPanels(initialPanels);
-  }, [orientation]);
-
   // 1. Fetch Google Solar Insights & Auto-Calculate when Coordinates Change
   const fetchInsightsAndCalculate = useCallback(async (lat: number, lng: number) => {
     setFetchingInsights(true);
     setInsightsNotice(null);
     try {
       const insights: SolarInsightsResponse = await getSolarInsights(lat, lng);
-      setRoofAreaSqm(insights.roof_area_sqm);
-      setMaxPanelsCount(insights.max_panels_count || 88);
-      setPitchDegrees(insights.pitch_degrees);
-      setAzimuthDegrees(insights.azimuth_degrees);
+      const effectiveMaxCount = insights.max_panels_count || 88;
+      const effectiveArea = insights.roof_area_sqm || 170.0;
+      const effectivePitch = insights.pitch_degrees || 20.0;
+      const effectiveAzimuth = insights.azimuth_degrees || 180.0;
 
-      initializePanelGrid(insights.max_panels_count || 88, insights.azimuth_degrees, insights.pitch_degrees);
+      setRoofAreaSqm(effectiveArea);
+      setMaxPanelsCount(effectiveMaxCount);
+      setPitchDegrees(effectivePitch);
+      setAzimuthDegrees(effectiveAzimuth);
+
+      initializePanelGrid(effectiveMaxCount, effectiveAzimuth, effectivePitch);
 
       if (insights.is_fallback) {
         setInsightsNotice(
@@ -152,7 +165,7 @@ export const SolarCalculator: React.FC = () => {
         );
       } else {
         setInsightsNotice(
-          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${insights.roof_area_sqm} m² (${insights.max_panels_count} panels max). Solar panels anchored directly to roof.`
+          `✨ High-resolution Google Solar Building Insights applied! Max Roof Area: ${effectiveArea} m² (${effectiveMaxCount} panels max). Solar panels anchored directly to roof.`
         );
       }
 
@@ -160,13 +173,13 @@ export const SolarCalculator: React.FC = () => {
       const genRes = await estimateGeneration({
         latitude: Number(lat),
         longitude: Number(lng),
-        roof_area_sqm: Number(insights.roof_area_sqm),
-        azimuth: Number(insights.azimuth_degrees),
-        tilt: Number(insights.pitch_degrees)
+        roof_area_sqm: Number(effectiveArea),
+        azimuth: Number(effectiveAzimuth),
+        tilt: Number(effectivePitch)
       });
       setGenerationResult(genRes);
 
-      const systemCapacityKw = (insights.max_panels_count || 88) * 0.400;
+      const systemCapacityKw = effectiveMaxCount * 0.400;
 
       // Calculate Financial Economics
       const econRes = await estimateEconomics({
@@ -180,7 +193,30 @@ export const SolarCalculator: React.FC = () => {
       });
       setEconomicsResult(econRes);
     } catch (err: any) {
-      setInsightsNotice('⚠️ Could not fetch Google Solar Insights. Default values applied.');
+      setInsightsNotice('⚠️ Applied default estimated rooftop panel layout for this address.');
+      initializePanelGrid(88, 180, 20);
+      try {
+        const genRes = await estimateGeneration({
+          latitude: Number(lat),
+          longitude: Number(lng),
+          roof_area_sqm: 170.0,
+          azimuth: 180.0,
+          tilt: 20.0
+        });
+        setGenerationResult(genRes);
+        const econRes = await estimateEconomics({
+          system_capacity_kw: 88 * 0.400,
+          annual_energy_kwh: genRes.estimated_annual_kwh,
+          annual_consumption_kwh: Number(annualConsumptionKwh),
+          tariff_type: 'NEM3',
+          system_architecture: systemArchitecture,
+          battery_capacity_kwh: systemArchitecture === 'GRID_TIED' ? 0.0 : batteryCapacityKwh,
+          ev_charger_enabled: evChargerEnabled
+        });
+        setEconomicsResult(econRes);
+      } catch (innerErr) {
+        console.error("Fallback generation error:", innerErr);
+      }
     } finally {
       setFetchingInsights(false);
     }
@@ -192,7 +228,8 @@ export const SolarCalculator: React.FC = () => {
 
   // Recalculate financial yield when active panels change
   const handleRecalculateActivePanels = useCallback(async (activeCount: number) => {
-    const scaledArea = activeCount * (orientation === 'LANDSCAPE' ? 1.7 : 1.75);
+    const validCount = Math.max(1, activeCount);
+    const scaledArea = validCount * (orientation === 'LANDSCAPE' ? 1.7 : 1.75);
     setRoofAreaSqm(Number(scaledArea.toFixed(1)));
 
     try {
@@ -205,7 +242,7 @@ export const SolarCalculator: React.FC = () => {
       });
       setGenerationResult(genRes);
 
-      const systemCapacityKw = activeCount * 0.400;
+      const systemCapacityKw = validCount * 0.400;
       const econRes = await estimateEconomics({
         system_capacity_kw: systemCapacityKw,
         annual_energy_kwh: genRes.estimated_annual_kwh,
@@ -285,24 +322,49 @@ export const SolarCalculator: React.FC = () => {
   };
 
   const handleResetDefaultLayout = () => {
-    initializePanelGrid(maxPanelsCount, azimuthDegrees, pitchDegrees);
-    handleRecalculateActivePanels(maxPanelsCount);
+    initializePanelGrid(maxPanelsCount || 88, azimuthDegrees, pitchDegrees);
+    handleRecalculateActivePanels(maxPanelsCount || 88);
   };
 
   const handlePanelSliderChange = (count: number) => {
     const validCount = Math.max(1, Math.min(maxPanelsCount || 120, count));
-    const updated = panels.map((p, idx) => ({ ...p, active: idx < validCount }));
+    let updated = panels;
+    if (panels.length < validCount) {
+      const cols = orientation === 'LANDSCAPE' 
+        ? Math.min(12, Math.ceil(Math.sqrt(validCount * 1.5)))
+        : Math.min(10, Math.ceil(Math.sqrt(validCount * 1.1)));
+      const rows = Math.ceil(validCount / cols);
+      const newPanels: PanelItem[] = [];
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const id = r * cols + c;
+          if (id < validCount) {
+            newPanels.push({
+              id,
+              row: r,
+              col: c,
+              active: true,
+              azimuth: azimuthDegrees,
+              tilt: pitchDegrees
+            });
+          }
+        }
+      }
+      updated = newPanels;
+    } else {
+      updated = panels.map((p, idx) => ({ ...p, active: idx < validCount }));
+    }
     setPanels(updated);
     handleRecalculateActivePanels(validCount);
   };
 
   const handleAddSinglePanel = () => {
-    const nextCount = Math.min(maxPanelsCount || 120, activePanelCount + 1);
+    const nextCount = Math.min(maxPanelsCount || 120, (activePanelCount || 1) + 1);
     handlePanelSliderChange(nextCount);
   };
 
   const handleSubtractSinglePanel = () => {
-    const nextCount = Math.max(1, activePanelCount - 1);
+    const nextCount = Math.max(1, (activePanelCount || 1) - 1);
     handlePanelSliderChange(nextCount);
   };
 
@@ -394,10 +456,11 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
+  const activeCountOrFallback = Math.max(1, activePanelCount || maxPanelsCount || 88);
   const colsCount = orientation === 'LANDSCAPE'
-    ? Math.min(12, Math.ceil(Math.sqrt((maxPanelsCount || 88) * 1.5)))
-    : Math.min(10, Math.ceil(Math.sqrt((maxPanelsCount || 88) * 1.1)));
-  const rowsCount = Math.ceil((maxPanelsCount || 88) / colsCount);
+    ? Math.min(12, Math.ceil(Math.sqrt(activeCountOrFallback * 1.5)))
+    : Math.min(10, Math.ceil(Math.sqrt(activeCountOrFallback * 1.1)));
+  const rowsCount = Math.ceil(activeCountOrFallback / colsCount);
 
   // SVG Panel Grid Content
   const renderPanelGridSVG = () => (
@@ -786,8 +849,12 @@ export const SolarCalculator: React.FC = () => {
                 <OverlayViewF
                   position={{ lat: latitude, lng: longitude }}
                   mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                  getPixelPositionOffset={(width, height) => ({
+                    x: -(width / 2),
+                    y: -(height / 2)
+                  })}
                 >
-                  <div className="relative -translate-x-1/2 -translate-y-1/2 pointer-events-auto">
+                  <div className="relative pointer-events-auto">
                     {renderPanelGridSVG()}
                   </div>
                 </OverlayViewF>

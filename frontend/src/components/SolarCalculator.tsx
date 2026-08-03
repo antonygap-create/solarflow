@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
+import { GoogleMap, useJsApiLoader } from '@react-google-maps/api';
 import {
   estimateGeneration,
   estimateEconomics,
@@ -14,6 +15,8 @@ import type {
   SolarInsightsResponse
 } from '../api/solarClient';
 
+const GOOGLE_MAPS_JS_KEY = "AIzaSyBXWuHKI8U1Chf3NA2s-CtjKMjmB3sxESg";
+
 export interface PanelItem {
   id: number;
   row: number;
@@ -24,6 +27,12 @@ export interface PanelItem {
 }
 
 export const SolarCalculator: React.FC = () => {
+  // Load Native Google Maps JS API Script
+  const { isLoaded, loadError } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: GOOGLE_MAPS_JS_KEY
+  });
+
   // Address & Location State
   const [addressSearch, setAddressSearch] = useState<string>('1800 Port Margate Pl, Newport Beach, CA 92660');
   const [latitude, setLatitude] = useState<number>(33.62588);
@@ -36,7 +45,7 @@ export const SolarCalculator: React.FC = () => {
   const [azimuthDegrees, setAzimuthDegrees] = useState<number>(9.5);
   const [annualConsumptionKwh, setAnnualConsumptionKwh] = useState<number>(12000);
   const [customerEmail, setCustomerEmail] = useState<string>('');
-  const [mapMode, setMapMode] = useState<'hybrid' | 'blueprint'>('hybrid');
+  const [mapMode, setMapMode] = useState<'satellite' | 'blueprint'>('satellite');
 
   // Interactive Panels State Array
   const [panels, setPanels] = useState<PanelItem[]>([]);
@@ -291,20 +300,20 @@ export const SolarCalculator: React.FC = () => {
         <div className="flex items-center space-x-3">
           <span className="text-4xl">☀️</span>
           <div>
-            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD & 3D Roof Layout Visualizer</h2>
-            <p className="text-slate-400 text-sm">Interactive Satellite Solar Array Packing & NEM 3.0 Yield Engine</p>
+            <h2 className="text-2xl font-bold tracking-tight text-amber-400">SolarFlow CAD & Google Maps 3D Visualizer</h2>
+            <p className="text-slate-400 text-sm">Native Satellite Google Maps Engine & NEM 3.0 Yield Platform</p>
           </div>
         </div>
         <div className="flex items-center space-x-2">
           <button
-            onClick={() => setMapMode('hybrid')}
+            onClick={() => setMapMode('satellite')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition ${
-              mapMode === 'hybrid'
+              mapMode === 'satellite'
                 ? 'bg-amber-500 text-slate-950 border-amber-400'
                 : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-white'
             }`}
           >
-            🛰️ Satellite + Layout Overlay
+            🛰️ Native Satellite Map
           </button>
           <button
             onClick={() => setMapMode('blueprint')}
@@ -389,17 +398,27 @@ export const SolarCalculator: React.FC = () => {
           )}
         </div>
 
-        {/* Interactive Satellite View + Interactive SVG Solar Array Layout Overlay */}
+        {/* Native Google Maps JavaScript API Satellite Canvas Container */}
         <div className="lg:col-span-2 relative h-96 lg:h-[420px] rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 flex flex-col justify-between p-2 shadow-2xl">
-          {mapMode === 'hybrid' ? (
-            <iframe
-              title="Roof Satellite View Map"
-              width="100%"
-              height="100%"
-              className="absolute inset-0 w-full h-full border-0 rounded-2xl opacity-65 pointer-events-auto"
-              loading="lazy"
-              src={`https://maps.google.com/maps?q=${latitude},${longitude}&t=k&z=20&ie=UTF8&iwloc=&output=embed`}
-            ></iframe>
+          {mapMode === 'satellite' ? (
+            isLoaded ? (
+              <GoogleMap
+                mapContainerStyle={{ width: '100%', height: '100%', borderRadius: '1rem' }}
+                center={{ lat: latitude, lng: longitude }}
+                zoom={20}
+                options={{
+                  mapTypeId: 'satellite',
+                  tilt: 45,
+                  disableDefaultUI: true,
+                  zoomControl: true,
+                  rotateControl: true
+                }}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full text-amber-400 font-semibold text-sm">
+                {loadError ? 'Google Maps JS API failed to initialize' : '🛰️ Loading Native Google Satellite Canvas Engine...'}
+              </div>
+            )
           ) : (
             <div className="absolute inset-0 bg-slate-950 opacity-95 bg-[radial-gradient(#334155_1px,transparent_1px)] [background-size:24px_24px]"></div>
           )}
@@ -418,20 +437,17 @@ export const SolarCalculator: React.FC = () => {
                 className="overflow-visible"
               >
                 <defs>
-                  {/* Active Panel Photovoltaic Cell Gradient */}
                   <linearGradient id="solarCellGradActive" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" stopColor="#1e3a8a" />
                     <stop offset="50%" stopColor="#2563eb" />
                     <stop offset="100%" stopColor="#1d4ed8" />
                   </linearGradient>
 
-                  {/* Disabled/Excluded Panel Gradient */}
                   <linearGradient id="solarCellGradDisabled" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" stopColor="#334155" />
                     <stop offset="100%" stopColor="#1e293b" />
                   </linearGradient>
 
-                  {/* Anti-reflective Glass Shimmer */}
                   <linearGradient id="glassShimmer" x1="0%" y1="0%" x2="100%" y2="0%">
                     <stop offset="0%" stopColor="#ffffff" stopOpacity="0.1" />
                     <stop offset="50%" stopColor="#38bdf8" stopOpacity="0.45" />
@@ -447,7 +463,6 @@ export const SolarCalculator: React.FC = () => {
                       onClick={() => togglePanelActive(panel.id)}
                       className="cursor-pointer group"
                     >
-                      {/* Aluminum Frame Outer Rect */}
                       <rect
                         x="1"
                         y="1"
@@ -460,14 +475,12 @@ export const SolarCalculator: React.FC = () => {
                         className="transition-colors duration-200 group-hover:stroke-amber-400"
                       />
 
-                      {/* Silicon Cell Wafers Line Grid */}
                       {panel.active && (
                         <>
                           <line x1="1" y1="16" x2="34" y2="16" stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
                           <line x1="1" y1="31" x2="34" y2="31" stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
                           <line x1="12" y1="1" x2="12" y2="47" stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
                           <line x1="23" y1="1" x2="23" y2="47" stroke="#60a5fa" strokeWidth="0.5" strokeOpacity="0.7" />
-                          {/* Solar Cell Reflective Glass Overlay */}
                           <rect x="2" y="2" width="31" height="45" fill="url(#glassShimmer)" pointerEvents="none" />
                         </>
                       )}
@@ -485,7 +498,7 @@ export const SolarCalculator: React.FC = () => {
           {/* Top Info Banner */}
           <div className="relative z-30 flex justify-between items-start pointer-events-none p-2">
             <span className="px-3 py-1 bg-slate-900/95 text-slate-200 text-xs font-mono rounded-lg border border-slate-700 shadow-md">
-              🛰️ Roof Array Target: {latitude.toFixed(4)}°N, {longitude.toFixed(4)}°W
+              🛰️ Google Maps Satellite: {latitude.toFixed(4)}°N, {longitude.toFixed(4)}°W
             </span>
             {fetchingInsights && (
               <span className="px-3 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg animate-pulse shadow-md">

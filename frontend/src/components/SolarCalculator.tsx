@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
   estimateGeneration,
   estimateEconomics,
@@ -400,10 +401,18 @@ export const SolarCalculator: React.FC = () => {
             </button>
 
             {savedProposal && (
-              <div className="mt-4 p-4 bg-emerald-950/60 border border-emerald-500/60 rounded-xl text-emerald-200 text-sm text-center">
-                ✅ <strong>Commercial Proposal Saved!</strong>
-                <br />
-                <span className="text-xs text-slate-300 font-mono">Proposal ID: {savedProposal.id}</span>
+              <div className="mt-4 p-4 bg-emerald-950/60 border border-emerald-500/60 rounded-xl text-emerald-200 text-sm text-center flex flex-col items-center space-y-3">
+                <div>
+                  ✅ <strong>Commercial Proposal Saved to PostgreSQL!</strong>
+                  <br />
+                  <span className="text-xs text-slate-300 font-mono">Proposal ID: {savedProposal.id}</span>
+                </div>
+                <Link
+                  to={`/report/${savedProposal.id}`}
+                  className="px-6 py-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold rounded-lg text-xs tracking-wide shadow transition"
+                >
+                  📄 Переглянути комерційну пропозицію (PDF Report) →
+                </Link>
               </div>
             )}
           </div>

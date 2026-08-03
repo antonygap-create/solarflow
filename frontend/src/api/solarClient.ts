@@ -145,3 +145,15 @@ export async function saveProposal(data: ProposalCreate): Promise<ProposalRead> 
 
   return response.json();
 }
+
+/**
+ * 5. GET /api/v1/proposals/{id}
+ */
+export async function getProposalById(id: string): Promise<ProposalRead> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/proposals/${id}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Get proposal failed with status ${response.status}`);
+  }
+  return response.json();
+}

@@ -6,6 +6,7 @@ import { DashboardLayout } from './components/DashboardLayout';
 import { LeadsTable } from './components/LeadsTable';
 import { ProjectManagerView } from './components/ProjectManagerView';
 import { SolarCalculator } from './components/SolarCalculator';
+import { ProposalReport } from './components/ProposalReport';
 
 export function App() {
   return (
@@ -16,6 +17,7 @@ export function App() {
           <Route path="/" element={<LeadCaptureWidget />} />
           <Route path="/estimate" element={<LeadCaptureWidget />} />
           <Route path="/calculator" element={<SolarCalculator />} />
+          <Route path="/report/:id" element={<ProposalReport />} />
 
           {/* Public B2B Login Route */}
           <Route path="/login" element={<LoginPage />} />

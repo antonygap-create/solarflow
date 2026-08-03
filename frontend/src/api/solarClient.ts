@@ -73,6 +73,24 @@ export interface SolarInsightsResponse {
   solar_imagery_urls?: Record<string, any>;
 }
 
+export interface GeocodeResponse {
+  latitude: number;
+  longitude: number;
+  formatted_address: string;
+}
+
+/**
+ * 0. GET /api/v1/solar/geocode?address={address}
+ */
+export async function geocodeAddress(address: string): Promise<GeocodeResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/v1/solar/geocode?address=${encodeURIComponent(address)}`);
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Geocoding API failed with status ${response.status}`);
+  }
+  return response.json();
+}
+
 /**
  * 1. GET /api/v1/solar/insights?lat={lat}&lng={lng}
  */

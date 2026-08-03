@@ -1,15 +1,38 @@
 """
-FastAPI Router for Google Solar API Insights (/api/v1/solar/insights).
+FastAPI Router for Google Solar API Insights & Geocoding (/api/v1/solar).
 """
 
+from typing import Dict, Any
 from fastapi import APIRouter, Query, HTTPException, status
 from app.schemas.solar import SolarInsightsResponse
-from app.services.solar_api import fetch_building_insights
+from app.services.solar_api import fetch_building_insights, geocode_address
 
 router = APIRouter(
     prefix="/api/v1/solar",
-    tags=["Google Solar API Insights"]
+    tags=["Google Solar & Geocoding API"]
 )
+
+
+@router.get(
+    "/geocode",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_200_OK,
+    summary="Geocode Address to Coordinates",
+    description="Converts a user-entered address string into geographic coordinates (latitude, longitude) and formatted address."
+)
+async def geocode_user_address(
+    address: str = Query(..., min_length=2, description="Target address query string")
+) -> Dict[str, Any]:
+    """
+    HTTP GET endpoint to geocode address queries.
+    """
+    try:
+        return geocode_address(address=address)
+    except Exception as err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Geocoding failed for address '{address}': {str(err)}"
+        )
 
 
 @router.get(

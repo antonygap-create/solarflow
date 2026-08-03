@@ -4,7 +4,8 @@ import {
   estimateGeneration,
   estimateEconomics,
   saveProposal,
-  getSolarInsights
+  getSolarInsights,
+  geocodeAddress
 } from '../api/solarClient';
 import type {
   SolarGenerationResponse,
@@ -89,24 +90,20 @@ export const SolarCalculator: React.FC = () => {
     );
   };
 
-  // 3. Address Search Submit Handler
-  const handleAddressSearchSubmit = (e: React.FormEvent) => {
+  // 3. Address Search Submit Handler with Real Geocoding API
+  const handleAddressSearchSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Pre-defined sample city coordinates for demo search
-    const searchLower = addressSearch.toLowerCase();
-    if (searchLower.includes('san francisco') || searchLower.includes('sf')) {
-      setLatitude(37.7749);
-      setLongitude(-122.4194);
-    } else if (searchLower.includes('new york') || searchLower.includes('ny')) {
-      setLatitude(40.7128);
-      setLongitude(-74.0060);
-    } else if (searchLower.includes('miami')) {
-      setLatitude(25.7617);
-      setLongitude(-80.1918);
-    } else {
-      // Default to LA
-      setLatitude(34.0522);
-      setLongitude(-118.2437);
+    if (!addressSearch.trim()) return;
+    setFetchingInsights(true);
+    setError(null);
+    try {
+      const geo = await geocodeAddress(addressSearch);
+      setLatitude(geo.latitude);
+      setLongitude(geo.longitude);
+      setAddressSearch(geo.formatted_address);
+    } catch (err: any) {
+      setError(err.message || 'Geocoding failed for requested address.');
+      setFetchingInsights(false);
     }
   };
 

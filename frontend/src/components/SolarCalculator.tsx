@@ -18,12 +18,12 @@ import type {
 
 const GOOGLE_MAPS_JS_KEY = "AIzaSyCD60pY9r9AfuTxeUrrIaK-qZRzZoY4ZSw";
 
-// Standard 600W Qcells Solar Module Specs
+// Official 600W Qcells Solar Module Specs
 export const PANEL_MODEL_NAME = "Qcells Q.PEAK DUO XL-G11S.3/BFG 600W";
 export const PANEL_POWER_KW = 0.600; // 600 W (0.6 kWp)
-export const PANEL_LENGTH_MM = 2462; // 96.9 in
-export const PANEL_WIDTH_MM = 1134;  // 44.6 in
-export const PANEL_DEPTH_MM = 35;    // 1.38 in
+export const PANEL_LENGTH_MM = 2462; // 96.9 in -> 2.462 meters
+export const PANEL_WIDTH_MM = 1134;  // 44.6 in -> 1.134 meters
+export const PANEL_DEPTH_MM = 35;    // 1.38 in -> 35 mm
 export const PANEL_AREA_SQM = Number(((PANEL_LENGTH_MM * PANEL_WIDTH_MM) / 1000000).toFixed(3)); // 2.792 m²
 
 export interface PanelItem {
@@ -90,8 +90,10 @@ export const SolarCalculator: React.FC = () => {
   const [maxPanelsCount, setMaxPanelsCount] = useState<number>(88);
   const [pitchDegrees, setPitchDegrees] = useState<number>(23.2);
   const [azimuthDegrees, setAzimuthDegrees] = useState<number>(9.5);
-  const [isPitchedRoof, setIsPitchedRoof] = useState<boolean>(false);
   const [sunshineHours, setSunshineHours] = useState<number>(2850);
+
+  // Roof type derived state: Pitched roof (> 5° tilt) vs Flat roof (<= 5° tilt)
+  const isPitchedRoof = useMemo(() => pitchDegrees > 5, [pitchDegrees]);
 
   // Map Display Controls
   const [mapMode, setMapMode] = useState<MapDisplayMode>('satellite');
@@ -156,6 +158,12 @@ export const SolarCalculator: React.FC = () => {
 
   const resultsRef = useRef<HTMLDivElement>(null);
 
+  // Strict physical max panels fitting on usable roof area (65% usable footprint / 2.792 m² per module)
+  const maxPanelsFittingRoof = useMemo(() => {
+    const usableRoofFootprintSqm = roofAreaSqm * 0.65;
+    return Math.max(4, Math.floor(usableRoofFootprintSqm / PANEL_AREA_SQM));
+  }, [roofAreaSqm]);
+
   // Derived Active Panels
   const activePanelCount = useMemo(() => {
     return panels.filter((p) => p.active).length;
@@ -188,19 +196,22 @@ export const SolarCalculator: React.FC = () => {
     }
   }, [historyIdx, history]);
 
-  // Construct panel grid matching layoutMode & roof area constraints for 600W modules (2.46m x 1.13m)
+  // Construct panel grid bound STRICTLY to physical roof dimensions
   const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
-    const validCount = Math.max(1, count || 88);
+    // Physical roof footprint bound
+    const physicalCap = Math.max(4, Math.floor((roofAreaSqm * 0.65) / PANEL_AREA_SQM));
+    const effectivePanels = Math.min(count || 88, physicalCap);
+
     const cols = orientation === 'LANDSCAPE' 
-      ? Math.min(10, Math.ceil(Math.sqrt(validCount * 1.4)))
-      : Math.min(8, Math.ceil(Math.sqrt(validCount * 1.0)));
-    const rows = Math.ceil(validCount / cols);
+      ? Math.min(8, Math.ceil(Math.sqrt(effectivePanels * 1.3)))
+      : Math.min(6, Math.ceil(Math.sqrt(effectivePanels * 0.9)));
+    const rows = Math.ceil(effectivePanels / cols);
     const initialPanels: PanelItem[] = [];
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const id = r * cols + c;
-        if (id < validCount) {
+        if (id < effectivePanels) {
           initialPanels.push({
             id,
             row: r,
@@ -217,7 +228,14 @@ export const SolarCalculator: React.FC = () => {
     setHistory([initialPanels]);
     setHistoryIdx(0);
     setHasManualEdits(false);
-  }, [orientation]);
+  }, [orientation, roofAreaSqm]);
+
+  // Force Standard layout mode when roof is pitched (> 5°)
+  useEffect(() => {
+    if (isPitchedRoof && layoutMode !== 'standard') {
+      setLayoutMode('standard');
+    }
+  }, [isPitchedRoof, layoutMode]);
 
   // 360-Degree Orbit Loop
   useEffect(() => {
@@ -267,7 +285,7 @@ export const SolarCalculator: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo]);
 
-  // Fetch Solar Insights & Run Assessment with 600W modules
+  // Fetch Solar Insights & Run Assessment with roof dimension binding
   const runAssessment = useCallback(async (lat: number, lng: number) => {
     setAppState('loading');
     setLoadingStage(STRINGS.loadingStage1);
@@ -280,21 +298,23 @@ export const SolarCalculator: React.FC = () => {
       clearTimeout(t2);
       clearTimeout(t3);
 
-      const effectiveCount = insights.max_panels_count || 88;
       const effectiveArea = insights.roof_area_sqm || 170.0;
       const effectivePitch = insights.pitch_degrees || 23.2;
       const effectiveAzimuth = insights.azimuth_degrees || 9.5;
-      const isPitched = effectivePitch > 10;
+      const isPitched = effectivePitch > 5;
+
+      // Physical capacity constraint for 600W modules (2.792 m²)
+      const physicalCap = Math.max(4, Math.floor((effectiveArea * 0.65) / PANEL_AREA_SQM));
+      const effectiveCount = Math.min(insights.max_panels_count || 88, physicalCap);
 
       setRoofAreaSqm(effectiveArea);
       setMaxPanelsCount(effectiveCount);
       setPitchDegrees(effectivePitch);
       setAzimuthDegrees(effectiveAzimuth);
-      setIsPitchedRoof(isPitched);
       setSunshineHours(2850);
 
-      // Pitched roof restriction: force Standard layout mode if pitched
-      if (isPitched && layoutMode !== 'standard') {
+      // Pitched roof restriction: force Standard layout mode if pitched (> 5°)
+      if (isPitched) {
         setLayoutMode('standard');
       }
 
@@ -330,7 +350,7 @@ export const SolarCalculator: React.FC = () => {
       clearTimeout(t3);
       setAppState('error');
     }
-  }, [monthlyBill, layoutMode, initializePanelGrid, systemArchitecture, batteryCapacityKwh, evChargerEnabled]);
+  }, [monthlyBill, initializePanelGrid, systemArchitecture, batteryCapacityKwh, evChargerEnabled]);
 
   // Handle Monthly Bill Changes
   const applyMonthlyBill = (val: number) => {
@@ -338,9 +358,9 @@ export const SolarCalculator: React.FC = () => {
     setMonthlyBill(clamped);
     setMonthlyBillInput(clamped.toString());
 
-    // Scale panel count smoothly for 600W modules
+    // Scale panel count smoothly within physical roof capacity
     if (appState === 'ready') {
-      const estimatedPanels = Math.min(maxPanelsCount, Math.max(4, Math.round(clamped / 3.5)));
+      const estimatedPanels = Math.min(maxPanelsFittingRoof, Math.max(4, Math.round(clamped / 3.5)));
       const updated = panels.map((p, idx) => ({ ...p, active: idx < estimatedPanels }));
       setPanels(updated);
     }
@@ -421,7 +441,11 @@ export const SolarCalculator: React.FC = () => {
   };
 
   const handleLayoutModeChange = (newMode: 'standard' | 'eastWest' | 'canopy') => {
-    if (isPitchedRoof && newMode !== 'standard') return;
+    // Pitched roof restriction: East-West and Canopy are ONLY for flat roofs (tilt <= 5°)
+    if (isPitchedRoof && newMode !== 'standard') {
+      alert(`East-West and Canopy layouts are only available for Flat Roofs (Tilt ≤ 5°). Your roof tilt is ${pitchDegrees}°.`);
+      return;
+    }
 
     const applyChange = () => {
       setLayoutMode(newMode);
@@ -530,23 +554,24 @@ export const SolarCalculator: React.FC = () => {
 
   const activeCountOrFallback = Math.max(1, activePanelCount || maxPanelsCount || 88);
   const colsCount = orientation === 'LANDSCAPE'
-    ? Math.min(10, Math.ceil(Math.sqrt(activeCountOrFallback * 1.4)))
-    : Math.min(8, Math.ceil(Math.sqrt(activeCountOrFallback * 1.0)));
+    ? Math.min(8, Math.ceil(Math.sqrt(activeCountOrFallback * 1.3)))
+    : Math.min(6, Math.ceil(Math.sqrt(activeCountOrFallback * 0.9)));
   const rowsCount = Math.ceil(activeCountOrFallback / colsCount);
 
-  // Exact 600W physical dimensions: 2462mm x 1134mm x 35mm (Aspect Ratio = 2.17)
-  const panelW = orientation === 'LANDSCAPE' ? 35 : 16;
-  const panelH = orientation === 'LANDSCAPE' ? 16 : 35;
-  const stepX = panelW + 2;
-  const stepY = panelH + Math.round(rowPitchGapMeters * 8);
+  // Real Zoom 20 Map Pixel Dimensions for Qcells 600W (2.462m x 1.134m)
+  // At Zoom 20: 1 meter ≈ 15.2 px
+  const panelW = orientation === 'LANDSCAPE' ? 37 : 17;
+  const panelH = orientation === 'LANDSCAPE' ? 17 : 37;
+  const stepX = panelW + 3;
+  const stepY = panelH + Math.round(rowPitchGapMeters * 10);
 
   const totalGridW = colsCount * stepX;
   const totalGridH = rowsCount * stepY;
 
   // Scale factor matching building roof area with 600W module size (2.79m² per module)
-  const roofScaleRatio = Math.max(0.65, Math.min(1.25, Math.sqrt(roofAreaSqm / 170.0)));
+  const roofScaleRatio = Math.max(0.70, Math.min(1.15, Math.sqrt(roofAreaSqm / 170.0)));
 
-  // SVG Panel Grid Content (Centered & Scaled Exactly for 600W Solar Modules)
+  // SVG Panel Grid Content (Centered & Scaled Exactly for 600W Solar Modules within Roof Area)
   const renderPanelGridSVG = () => (
     <div
       className="transition-transform duration-300 shadow-2xl pointer-events-auto flex items-center justify-center"
@@ -1090,11 +1115,19 @@ export const SolarCalculator: React.FC = () => {
 
             {/* LAYOUT CARDS (§5.3) */}
             <div className="space-y-2">
-              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                {STRINGS.layoutGroupLabel}
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                  {STRINGS.layoutGroupLabel}
+                </label>
+                {isPitchedRoof && (
+                  <span className="text-[11px] font-semibold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/30">
+                    🏠 Скатний дах ({pitchDegrees}°) — доступний лише Standard
+                  </span>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {/* Standard */}
+                {/* Standard Card */}
                 <div
                   onClick={() => handleLayoutModeChange('standard')}
                   className={`p-4 rounded-2xl border cursor-pointer transition ${
@@ -1114,8 +1147,8 @@ export const SolarCalculator: React.FC = () => {
                   </div>
                 </div>
 
-                {/* East-West (Hidden if pitched roof!) */}
-                {!isPitchedRoof && (
+                {/* East-West (ONLY for Flat Roofs!) */}
+                {!isPitchedRoof ? (
                   <div
                     onClick={() => handleLayoutModeChange('eastWest')}
                     className={`p-4 rounded-2xl border cursor-pointer transition ${
@@ -1134,10 +1167,19 @@ export const SolarCalculator: React.FC = () => {
                       {activePanelCount} panels · {(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp (600W Spec)
                     </div>
                   </div>
+                ) : (
+                  <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950/60 opacity-50 cursor-not-allowed">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="font-bold text-sm text-slate-400">{STRINGS.layoutNames.eastWest}</span>
+                      <span className="text-slate-500 text-xs">🔒 Locked</span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-semibold">Тільки для пласких дахів</p>
+                    <p className="text-[11px] text-slate-500 mt-1">Недоступно для скатної покрівлі ({pitchDegrees}°)</p>
+                  </div>
                 )}
 
-                {/* Canopy (Hidden if pitched roof!) */}
-                {!isPitchedRoof && (
+                {/* Canopy (ONLY for Flat Roofs!) */}
+                {!isPitchedRoof ? (
                   <div
                     onClick={() => handleLayoutModeChange('canopy')}
                     className={`p-4 rounded-2xl border cursor-pointer transition ${
@@ -1155,6 +1197,15 @@ export const SolarCalculator: React.FC = () => {
                     <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] font-mono text-slate-300">
                       {activePanelCount} panels · {(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp (600W Spec)
                     </div>
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-2xl border border-slate-800 bg-slate-950/60 opacity-50 cursor-not-allowed">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="font-bold text-sm text-slate-400">{STRINGS.layoutNames.canopy}</span>
+                      <span className="text-slate-500 text-xs">🔒 Locked</span>
+                    </div>
+                    <p className="text-xs text-slate-500 font-semibold">Тільки для пласких дахів</p>
+                    <p className="text-[11px] text-slate-500 mt-1">Недоступно для скатної покрівлі ({pitchDegrees}°)</p>
                   </div>
                 )}
               </div>
@@ -1174,7 +1225,7 @@ export const SolarCalculator: React.FC = () => {
                     <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700">
                       <span className="text-xs text-slate-400">{STRINGS.recommendedCapacity}</span>
                       <p className="text-2xl font-bold text-white">{(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp</p>
-                      <span className="text-[10px] text-amber-300 font-mono block mt-1">600W High-Output Modules</span>
+                      <span className="text-[10px] text-amber-300 font-mono block mt-1">Qcells 600W Modules</span>
                     </div>
 
                     <div className="p-4 bg-emerald-950/60 rounded-xl border border-emerald-500/50">

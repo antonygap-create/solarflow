@@ -62,6 +62,8 @@ export const SolarCalculator: React.FC = () => {
     googleMapsApiKey: GOOGLE_MAPS_JS_KEY
   });
 
+  const mapRef = useRef<google.maps.Map | null>(null);
+
   // Main App State
   const [appState, setAppState] = useState<AppState>('idle');
   const [loadingStage, setLoadingStage] = useState<string>(STRINGS.loadingStage1);
@@ -158,7 +160,7 @@ export const SolarCalculator: React.FC = () => {
 
   const resultsRef = useRef<HTMLDivElement>(null);
 
-  // Strict physical max panels fitting on usable roof area (65% usable footprint / 2.792 m² per module)
+  // Physical roof capacity bound for 600W modules
   const maxPanelsFittingRoof = useMemo(() => {
     const usableRoofFootprintSqm = roofAreaSqm * 0.65;
     return Math.max(4, Math.floor(usableRoofFootprintSqm / PANEL_AREA_SQM));
@@ -198,7 +200,6 @@ export const SolarCalculator: React.FC = () => {
 
   // Construct panel grid bound STRICTLY to physical roof dimensions
   const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
-    // Physical roof footprint bound
     const physicalCap = Math.max(4, Math.floor((roofAreaSqm * 0.65) / PANEL_AREA_SQM));
     const effectivePanels = Math.min(count || 88, physicalCap);
 
@@ -237,7 +238,25 @@ export const SolarCalculator: React.FC = () => {
     }
   }, [isPitchedRoof, layoutMode]);
 
-  // 360-Degree Orbit Loop
+  // Handle map mode switches (satellite, heatmap, 3d)
+  const handleMapModeSwitch = (mode: MapDisplayMode) => {
+    setMapMode(mode);
+    if (mode === '3d') {
+      setIsEditingLayout(false);
+      if (mapRef.current) {
+        mapRef.current.setTilt(60);
+      }
+    } else {
+      setIsOrbiting3D(false);
+      setOrbitHeading(0);
+      if (mapRef.current) {
+        mapRef.current.setTilt(45);
+        mapRef.current.setHeading(0);
+      }
+    }
+  };
+
+  // 360-Degree Orbit Loop dynamically rotating Google Map heading
   useEffect(() => {
     if (mapMode !== '3d' || !isOrbiting3D) return;
     let animId: number;
@@ -246,7 +265,13 @@ export const SolarCalculator: React.FC = () => {
     const tick = (now: number) => {
       const delta = (now - lastTime) / 1000;
       lastTime = now;
-      setOrbitHeading((prev) => (prev + delta * 25) % 360);
+      setOrbitHeading((prev) => {
+        const next = (prev + delta * 25) % 360;
+        if (mapRef.current) {
+          mapRef.current.setHeading(next);
+        }
+        return next;
+      });
       animId = requestAnimationFrame(tick);
     };
 
@@ -266,12 +291,11 @@ export const SolarCalculator: React.FC = () => {
       if (isInput) return;
 
       if (e.key === '1') {
-        setMapMode('satellite');
+        handleMapModeSwitch('satellite');
       } else if (e.key === '2') {
-        setMapMode('3d');
-        setIsEditingLayout(false);
+        handleMapModeSwitch('3d');
       } else if (e.key === '3' || e.key.toLowerCase() === 'h') {
-        setMapMode('heatmap');
+        handleMapModeSwitch('heatmap');
       } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         if (e.shiftKey) {
           handleRedo();
@@ -303,7 +327,6 @@ export const SolarCalculator: React.FC = () => {
       const effectiveAzimuth = insights.azimuth_degrees || 9.5;
       const isPitched = effectivePitch > 5;
 
-      // Physical capacity constraint for 600W modules (2.792 m²)
       const physicalCap = Math.max(4, Math.floor((effectiveArea * 0.65) / PANEL_AREA_SQM));
       const effectiveCount = Math.min(insights.max_panels_count || 88, physicalCap);
 
@@ -313,7 +336,6 @@ export const SolarCalculator: React.FC = () => {
       setAzimuthDegrees(effectiveAzimuth);
       setSunshineHours(2850);
 
-      // Pitched roof restriction: force Standard layout mode if pitched (> 5°)
       if (isPitched) {
         setLayoutMode('standard');
       }
@@ -358,7 +380,6 @@ export const SolarCalculator: React.FC = () => {
     setMonthlyBill(clamped);
     setMonthlyBillInput(clamped.toString());
 
-    // Scale panel count smoothly within physical roof capacity
     if (appState === 'ready') {
       const estimatedPanels = Math.min(maxPanelsFittingRoof, Math.max(4, Math.round(clamped / 3.5)));
       const updated = panels.map((p, idx) => ({ ...p, active: idx < estimatedPanels }));
@@ -429,7 +450,6 @@ export const SolarCalculator: React.FC = () => {
   const togglePanelActive = (id: number) => {
     let updated: PanelItem[];
     if (layoutMode === 'eastWest') {
-      // East-West panels work in atomic pairs (§5.5, §14)
       const pairId = id % 2 === 0 ? id + 1 : id - 1;
       const targetState = !panels.find((p) => p.id === id)?.active;
       updated = panels.map((p) => (p.id === id || p.id === pairId ? { ...p, active: targetState } : p));
@@ -441,7 +461,6 @@ export const SolarCalculator: React.FC = () => {
   };
 
   const handleLayoutModeChange = (newMode: 'standard' | 'eastWest' | 'canopy') => {
-    // Pitched roof restriction: East-West and Canopy are ONLY for flat roofs (tilt <= 5°)
     if (isPitchedRoof && newMode !== 'standard') {
       alert(`East-West and Canopy layouts are only available for Flat Roofs (Tilt ≤ 5°). Your roof tilt is ${pitchDegrees}°.`);
       return;
@@ -501,7 +520,7 @@ export const SolarCalculator: React.FC = () => {
     });
   };
 
-  // Lead Form Validation (§9.2, §14)
+  // Lead Form Validation
   const validateEmail = (val: string) => {
     if (!val) return null;
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val) ? null : "Enter a valid email address.";
@@ -559,7 +578,6 @@ export const SolarCalculator: React.FC = () => {
   const rowsCount = Math.ceil(activeCountOrFallback / colsCount);
 
   // Real Zoom 20 Map Pixel Dimensions for Qcells 600W (2.462m x 1.134m)
-  // At Zoom 20: 1 meter ≈ 15.2 px
   const panelW = orientation === 'LANDSCAPE' ? 37 : 17;
   const panelH = orientation === 'LANDSCAPE' ? 17 : 37;
   const stepX = panelW + 3;
@@ -577,7 +595,7 @@ export const SolarCalculator: React.FC = () => {
       className="transition-transform duration-300 shadow-2xl pointer-events-auto flex items-center justify-center"
       style={{
         transform: mapMode === '3d'
-          ? `rotate(${azimuthDegrees - 180 + arrayRotation + orbitHeading}deg) rotateX(45deg) scale(${1.15 * roofScaleRatio})`
+          ? `rotate(${azimuthDegrees - 180 + arrayRotation}deg) scale(${1.15 * roofScaleRatio})`
           : `rotate(${azimuthDegrees - 180 + arrayRotation}deg) scale(${roofScaleRatio * (1 - pitchDegrees / 180)})`,
       }}
     >
@@ -890,7 +908,7 @@ export const SolarCalculator: React.FC = () => {
                 <div className="flex items-center space-x-1.5 p-1 bg-slate-900/90 rounded-xl border border-slate-800">
                   <button
                     onClick={() => {
-                      setMapMode('satellite');
+                      handleMapModeSwitch('satellite');
                       setSurveyImagery(true);
                     }}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
@@ -900,7 +918,7 @@ export const SolarCalculator: React.FC = () => {
                     🛰️ {STRINGS.chipSurveyImagery}
                   </button>
                   <button
-                    onClick={() => setMapMode('heatmap')}
+                    onClick={() => handleMapModeSwitch('heatmap')}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
                       mapMode === 'heatmap' ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-slate-950' : 'text-slate-400'
                     }`}
@@ -908,10 +926,7 @@ export const SolarCalculator: React.FC = () => {
                     🔥 {STRINGS.chipSunExposure}
                   </button>
                   <button
-                    onClick={() => {
-                      setMapMode('3d');
-                      setIsEditingLayout(false);
-                    }}
+                    onClick={() => handleMapModeSwitch('3d')}
                     className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
                       mapMode === '3d' ? 'bg-indigo-500 text-white' : 'text-slate-400'
                     }`}
@@ -932,54 +947,60 @@ export const SolarCalculator: React.FC = () => {
                     ✏️ {STRINGS.chipEditLayout}
                   </button>
                 )}
+
+                {mapMode === '3d' && (
+                  <button
+                    onClick={() => setIsOrbiting3D(!isOrbiting3D)}
+                    className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs rounded-xl shadow transition"
+                  >
+                    {isOrbiting3D ? '⏸️ Pause Orbit' : '🔄 360° Orbit'}
+                  </button>
+                )}
               </div>
 
-              {/* Native Google Map Canvas */}
-              {mapMode === 'satellite' ? (
-                isLoaded && !loadError ? (
+              {/* Native Google Map Canvas with 3D and Solar Heatmap Overlay */}
+              {isLoaded && !loadError ? (
+                <div className="absolute inset-0 z-10">
                   <GoogleMap
                     mapContainerStyle={{ width: '100%', height: '100%', borderRadius: '1rem' }}
                     center={{ lat: latitude, lng: longitude }}
                     zoom={20}
-                    options={{ mapTypeId: surveyImagery ? 'satellite' : 'roadmap', tilt: 45, disableDefaultUI: true, zoomControl: true }}
+                    onLoad={(map) => {
+                      mapRef.current = map;
+                    }}
+                    options={{
+                      mapTypeId: surveyImagery ? 'satellite' : 'hybrid',
+                      tilt: mapMode === '3d' ? 60 : 45,
+                      heading: mapMode === '3d' ? orbitHeading : 0,
+                      disableDefaultUI: true,
+                      zoomControl: true,
+                    }}
                   >
+                    {/* Solar Flux Heatmap Overlay */}
+                    {mapMode === 'heatmap' && (
+                      <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/50 via-orange-600/40 to-transparent mix-blend-color-dodge pointer-events-none z-10" />
+                    )}
+
                     <OverlayViewF
                       position={{ lat: latitude, lng: longitude }}
                       mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
                       getPixelPositionOffset={(w, h) => ({ x: -(w / 2), y: -(h / 2) })}
                     >
-                      <div className="relative pointer-events-auto">
+                      <div className="relative pointer-events-auto z-20">
                         {renderPanelGridSVG()}
                       </div>
                     </OverlayViewF>
                   </GoogleMap>
-                ) : (
-                  <div className="absolute inset-0 bg-slate-900 flex items-center justify-center">
-                    {renderPanelGridSVG()}
-                  </div>
-                )
-              ) : mapMode === 'heatmap' ? (
-                <div className="absolute inset-0 bg-slate-950 flex items-center justify-center">
-                  <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-500/70 via-red-600/50 to-slate-950"></div>
-                  <div className="relative z-20">{renderPanelGridSVG()}</div>
                 </div>
               ) : (
-                <div className="absolute inset-0 bg-slate-950 flex items-center justify-center p-4">
-                  <div className="absolute top-4 right-4 z-30">
-                    <button
-                      onClick={() => setIsOrbiting3D(!isOrbiting3D)}
-                      className="px-3 py-1.5 bg-emerald-500 text-slate-950 font-bold text-xs rounded-xl shadow"
-                    >
-                      {isOrbiting3D ? '⏸️ Pause Orbit' : '🔄 360° Orbit'}
-                    </button>
-                  </div>
+                <div className="absolute inset-0 bg-slate-900 flex items-center justify-center">
                   {renderPanelGridSVG()}
                 </div>
               )}
 
               {/* Adjust Hint Overlay Banner */}
               {showMapAdjustHint && (
-                <div className="relative z-30 flex justify-between items-center bg-slate-900/90 border border-slate-700 p-2 rounded-xl text-xs text-slate-200">
+                <div className="relative z-30 flex justify-between items-center bg-slate-900/90 border border-slate-700 p-2 rounded-xl text-xs text-slate-200 mt-auto">
                   <span>📍 {STRINGS.mapAdjustHint}</span>
                   <button
                     onClick={() => setShowMapAdjustHint(false)}

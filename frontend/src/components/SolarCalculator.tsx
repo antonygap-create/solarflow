@@ -18,6 +18,13 @@ import type {
 
 const GOOGLE_MAPS_JS_KEY = "AIzaSyCD60pY9r9AfuTxeUrrIaK-qZRzZoY4ZSw";
 
+// Standard 600W Solar Module Specs
+export const PANEL_POWER_KW = 0.600; // 600 W (0.6 kWp)
+export const PANEL_LENGTH_MM = 2462; // 96.9 in
+export const PANEL_WIDTH_MM = 1134;  // 44.6 in
+export const PANEL_DEPTH_MM = 35;    // 1.38 in
+export const PANEL_AREA_SQM = Number(((PANEL_LENGTH_MM * PANEL_WIDTH_MM) / 1000000).toFixed(3)); // 2.792 m²
+
 export interface PanelItem {
   id: number;
   row: number;
@@ -180,10 +187,9 @@ export const SolarCalculator: React.FC = () => {
     }
   }, [historyIdx, history]);
 
-  // Construct panel grid matching layoutMode & roof area constraints
+  // Construct panel grid matching layoutMode & roof area constraints for 600W modules (2.46m x 1.13m)
   const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
     const validCount = Math.max(1, count || 88);
-    // Aspect ratio matching roof dimensions
     const cols = orientation === 'LANDSCAPE' 
       ? Math.min(10, Math.ceil(Math.sqrt(validCount * 1.4)))
       : Math.min(8, Math.ceil(Math.sqrt(validCount * 1.0)));
@@ -260,7 +266,7 @@ export const SolarCalculator: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo]);
 
-  // Fetch Solar Insights & Run Assessment
+  // Fetch Solar Insights & Run Assessment with 600W modules
   const runAssessment = useCallback(async (lat: number, lng: number) => {
     setAppState('loading');
     setLoadingStage(STRINGS.loadingStage1);
@@ -303,7 +309,7 @@ export const SolarCalculator: React.FC = () => {
       setGenerationResult(genRes);
 
       const econRes = await estimateEconomics({
-        system_capacity_kw: effectiveCount * 0.400,
+        system_capacity_kw: effectiveCount * PANEL_POWER_KW,
         annual_energy_kwh: genRes.estimated_annual_kwh,
         annual_consumption_kwh: (monthlyBill * 12) / 0.28,
         tariff_type: 'NEM3',
@@ -331,9 +337,9 @@ export const SolarCalculator: React.FC = () => {
     setMonthlyBill(clamped);
     setMonthlyBillInput(clamped.toString());
 
-    // Scale panel count smoothly without altering array orientation or rotation
+    // Scale panel count smoothly for 600W modules
     if (appState === 'ready') {
-      const estimatedPanels = Math.min(maxPanelsCount, Math.max(4, Math.round(clamped / 2.5)));
+      const estimatedPanels = Math.min(maxPanelsCount, Math.max(4, Math.round(clamped / 3.5)));
       const updated = panels.map((p, idx) => ({ ...p, active: idx < estimatedPanels }));
       setPanels(updated);
     }
@@ -505,7 +511,7 @@ export const SolarCalculator: React.FC = () => {
         customer_email: leadEmail,
         latitude,
         longitude,
-        system_capacity_kw: activePanelCount * 0.400,
+        system_capacity_kw: activePanelCount * PANEL_POWER_KW,
         annual_generation_kwh: generationResult?.estimated_annual_kwh || 18000,
         total_system_cost: economicsResult?.total_system_cost || 35000,
         estimated_annual_savings: economicsResult?.estimated_annual_savings || 4000,
@@ -527,19 +533,19 @@ export const SolarCalculator: React.FC = () => {
     : Math.min(8, Math.ceil(Math.sqrt(activeCountOrFallback * 1.0)));
   const rowsCount = Math.ceil(activeCountOrFallback / colsCount);
 
-  // Compute exact physical dimensions & scale factor matching roof dimensions
-  const panelW = orientation === 'LANDSCAPE' ? 24 : 16;
-  const panelH = orientation === 'LANDSCAPE' ? 16 : 28;
+  // Exact 600W physical dimensions: 2462mm x 1134mm x 35mm (Aspect Ratio = 2.17)
+  const panelW = orientation === 'LANDSCAPE' ? 35 : 16;
+  const panelH = orientation === 'LANDSCAPE' ? 16 : 35;
   const stepX = panelW + 2;
   const stepY = panelH + Math.round(rowPitchGapMeters * 8);
 
   const totalGridW = colsCount * stepX;
   const totalGridH = rowsCount * stepY;
 
-  // Scale factor matching building roof area (clamped to realistic roof scale)
+  // Scale factor matching building roof area with 600W module size (2.79m² per module)
   const roofScaleRatio = Math.max(0.65, Math.min(1.25, Math.sqrt(roofAreaSqm / 170.0)));
 
-  // SVG Panel Grid Content (Centered & Scaled Exactly to Roof Dimensions)
+  // SVG Panel Grid Content (Centered & Scaled Exactly for 600W Solar Modules)
   const renderPanelGridSVG = () => (
     <div
       className="transition-transform duration-300 shadow-2xl pointer-events-auto flex items-center justify-center"
@@ -618,8 +624,11 @@ export const SolarCalculator: React.FC = () => {
               SF
             </div>
             <div>
-              <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-                SolarFlow · United States
+              <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center space-x-2">
+                <span>SolarFlow · United States</span>
+                <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded font-mono text-[10px]">
+                  ⚡ 600W High-Efficiency Spec (2462×1134×35mm)
+                </span>
               </div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
                 {STRINGS.h1Title}
@@ -1100,7 +1109,7 @@ export const SolarCalculator: React.FC = () => {
                   <p className="text-xs text-amber-300 font-semibold">{STRINGS.layoutBenefits.standard}</p>
                   <p className="text-[11px] text-slate-400 mt-1">{STRINGS.layoutDescriptions.standard}</p>
                   <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] font-mono text-slate-300">
-                    {activePanelCount} panels · {(activePanelCount * 0.4).toFixed(1)} kWp
+                    {activePanelCount} panels · {(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp (600W Spec)
                   </div>
                 </div>
 
@@ -1121,7 +1130,7 @@ export const SolarCalculator: React.FC = () => {
                     <p className="text-xs text-amber-300 font-semibold">{STRINGS.layoutBenefits.eastWest}</p>
                     <p className="text-[11px] text-slate-400 mt-1">{STRINGS.layoutDescriptions.eastWest}</p>
                     <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] font-mono text-slate-300">
-                      {activePanelCount} panels · {(activePanelCount * 0.4).toFixed(1)} kWp
+                      {activePanelCount} panels · {(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp (600W Spec)
                     </div>
                   </div>
                 )}
@@ -1143,7 +1152,7 @@ export const SolarCalculator: React.FC = () => {
                     <p className="text-xs text-amber-300 font-semibold">{STRINGS.layoutBenefits.canopy}</p>
                     <p className="text-[11px] text-slate-400 mt-1">{STRINGS.layoutDescriptions.canopy}</p>
                     <div className="mt-3 pt-2 border-t border-slate-800 text-[10px] font-mono text-slate-300">
-                      {activePanelCount} panels · {(activePanelCount * 0.4).toFixed(1)} kWp
+                      {activePanelCount} panels · {(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp (600W Spec)
                     </div>
                   </div>
                 )}
@@ -1163,8 +1172,8 @@ export const SolarCalculator: React.FC = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700">
                       <span className="text-xs text-slate-400">{STRINGS.recommendedCapacity}</span>
-                      <p className="text-2xl font-bold text-white">{(activePanelCount * 0.4).toFixed(1)} kWp</p>
-                      <span className="text-[10px] text-slate-400">{STRINGS.optimalRooftopSize}</span>
+                      <p className="text-2xl font-bold text-white">{(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp</p>
+                      <span className="text-[10px] text-amber-300 font-mono block mt-1">600W High-Output Modules</span>
                     </div>
 
                     <div className="p-4 bg-emerald-950/60 rounded-xl border border-emerald-500/50">
@@ -1287,8 +1296,8 @@ export const SolarCalculator: React.FC = () => {
                     </div>
                     <div className="p-4 bg-slate-800/80 rounded-xl border border-slate-700">
                       <span className="text-xs text-slate-400">{STRINGS.systemSize}</span>
-                      <p className="text-xl font-bold text-white">{(activePanelCount * 0.4).toFixed(1)} kWp</p>
-                      {hasManualEdits && <span className="text-[10px] text-amber-400 font-mono block">{STRINGS.customLayoutBadge}</span>}
+                      <p className="text-xl font-bold text-white">{(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp</p>
+                      <span className="text-[10px] text-amber-300 font-mono block">600W Spec</span>
                     </div>
                     <div className="p-4 bg-amber-950/60 rounded-xl border border-amber-500/50">
                       <span className="text-xs text-amber-300">{STRINGS.simplePayback}</span>
@@ -1300,7 +1309,7 @@ export const SolarCalculator: React.FC = () => {
                   <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-wrap justify-between text-xs text-slate-400">
                     <span>{STRINGS.usableRoofArea}: <strong>{roofAreaSqm} m²</strong></span>
                     <span>{STRINGS.sunshinePerYear}: <strong>{sunshineHours} hrs/yr</strong></span>
-                    <span>{STRINGS.imagery}: <strong>Google High-Res (2026)</strong></span>
+                    <span>Panel Dimensions: <strong>{PANEL_LENGTH_MM} × {PANEL_WIDTH_MM} × {PANEL_DEPTH_MM} mm ({PANEL_AREA_SQM} m² / 600W)</strong></span>
                   </div>
 
                   {/* Accordion 1: How We Calculated This */}
@@ -1314,7 +1323,7 @@ export const SolarCalculator: React.FC = () => {
                     </button>
                     {showCalculatedAccordion && (
                       <div className="p-4 space-y-2 text-xs text-slate-300 bg-slate-900 border-t border-slate-800">
-                        <div className="flex justify-between"><span>System Capacity:</span><strong>{(activePanelCount * 0.4).toFixed(1)} kWp</strong></div>
+                        <div className="flex justify-between"><span>System Capacity:</span><strong>{(activePanelCount * PANEL_POWER_KW).toFixed(1)} kWp (600W)</strong></div>
                         <div className="flex justify-between"><span>Turnkey System Cost:</span><strong>${economicsResult?.total_system_cost.toLocaleString()}</strong></div>
                         <div className="flex justify-between"><span>30% Federal ITC Tax Credit:</span><strong>-${((economicsResult?.total_system_cost || 0) * 0.3).toLocaleString()}</strong></div>
                         <div className="flex justify-between"><span>Net Out-of-Pocket Cost:</span><strong>${((economicsResult?.total_system_cost || 0) * 0.7).toLocaleString()}</strong></div>
@@ -1355,7 +1364,7 @@ export const SolarCalculator: React.FC = () => {
 
                   <div className="pt-2 text-center">
                     <button
-                      onClick={() => navigate('/report', { state: { assessmentData: { address: addressSearch, activePanelCount, systemCapacityKw: activePanelCount * 0.4, annualSavings: economicsResult?.estimated_annual_savings } } })}
+                      onClick={() => navigate('/report', { state: { assessmentData: { address: addressSearch, activePanelCount, systemCapacityKw: activePanelCount * PANEL_POWER_KW, annualSavings: economicsResult?.estimated_annual_savings } } })}
                       className="px-8 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs shadow-lg transition"
                     >
                       📄 {STRINGS.viewFullReportBtn} →

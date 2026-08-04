@@ -75,6 +75,7 @@ export const SolarCalculator: React.FC = () => {
 
   // Main App State
   const [appState, setAppState] = useState<AppState>('ready');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [loadingStage, setLoadingStage] = useState<string>(STRINGS.loadingStage1);
 
   // Address State initialized with verified US solar location (Google HQ)
@@ -386,6 +387,7 @@ export const SolarCalculator: React.FC = () => {
   // Fetch Solar Insights & Run Assessment with roof dimension binding (ROBUST NO-FAIL)
   const runAssessment = useCallback(async (lat: number, lng: number) => {
     setAppState('loading');
+    setErrorMessage(null);
     setLoadingStage(STRINGS.loadingStage1);
 
     const t2 = setTimeout(() => setLoadingStage(STRINGS.loadingStage2), 400);
@@ -454,19 +456,14 @@ export const SolarCalculator: React.FC = () => {
       setTimeout(() => {
         resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
       }, 300);
-    } catch (err) {
+    } catch (err: any) {
       clearTimeout(t2);
       clearTimeout(t3);
-      
-      // Fallback guarantees panel grid is NEVER empty
-      const fallbackArea = 185.5;
-      const fallbackCount = 44;
-      setRoofAreaSqm(fallbackArea);
-      setMaxPanelsCount(fallbackCount);
-      setPitchDegrees(22.5);
-      setAzimuthDegrees(180.0);
-      initializePanelGrid(fallbackCount, 180.0, 22.5);
-      setAppState('ready');
+      setAppState('error');
+      setErrorMessage(err?.message || "Real solar data is not available for this location.");
+      setPanels([]);
+      setGenerationResult(null);
+      setEconomicsResult(null);
     }
   }, [monthlyBill, initializePanelGrid, systemArchitecture, batteryCapacityKwh, evChargerEnabled]);
 
@@ -1053,8 +1050,21 @@ export const SolarCalculator: React.FC = () => {
           </div>
         )}
 
+        {/* 8. ERROR STATE UI BANNER */}
+        {appState === 'error' && (
+          <div className="bg-red-950/40 border border-red-500/50 rounded-2xl p-6 text-center space-y-4 shadow-xl backdrop-blur-md">
+            <div className="mx-auto w-12 h-12 rounded-full bg-red-500/20 flex items-center justify-center text-red-400 text-2xl font-bold">
+              ⚠️
+            </div>
+            <h3 className="text-lg font-bold text-red-200">{errorMessage || "Real solar data is not available for this location"}</h3>
+            <p className="text-xs text-red-400 max-w-md mx-auto">
+              Google Solar API does not have high-resolution solar potential coverage for the entered address. Please try another address.
+            </p>
+          </div>
+        )}
+
         {/* 9. READY STATE & CANVAS (§4, §6.3) */}
-        {(appState === 'ready' || appState === 'error') && (
+        {appState === 'ready' && (
           <div className="space-y-6">
             {/* Map Canvas Container */}
             <div className="relative h-80 sm:h-[420px] bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-between p-2">
@@ -1124,6 +1134,9 @@ export const SolarCalculator: React.FC = () => {
                     isOrbiting={isOrbiting3D}
                     orbitHeading={orbitHeading}
                     isHeatmap={mapMode === 'heatmap'}
+                    panels={panels}
+                    latitude={latitude}
+                    longitude={longitude}
                   />
                   {mapMode === 'heatmap' && (
                     <div className="absolute bottom-4 left-4 z-30 p-2 bg-slate-900/90 border border-slate-700 rounded-xl text-[10px] font-mono text-slate-200 flex items-center space-x-2 shadow-lg">

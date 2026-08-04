@@ -2,6 +2,16 @@ import React, { useEffect, useRef } from 'react';
 // @ts-ignore
 import * as THREE from 'three';
 
+interface PanelItem3D {
+  id: number;
+  active: boolean;
+  azimuth: number;
+  tilt: number;
+  lat?: number;
+  lng?: number;
+  orientation?: 'LANDSCAPE' | 'PORTRAIT';
+}
+
 interface Solar3DViewerProps {
   roofAreaSqm: number;
   pitchDegrees: number;
@@ -10,15 +20,20 @@ interface Solar3DViewerProps {
   isOrbiting: boolean;
   orbitHeading: number;
   isHeatmap?: boolean;
+  panels: PanelItem3D[];
+  latitude: number;
+  longitude: number;
 }
 
 export const Solar3DViewer: React.FC<Solar3DViewerProps> = ({
   roofAreaSqm,
   pitchDegrees,
   azimuthDegrees,
-  activePanelCount,
   isOrbiting,
   isHeatmap = false,
+  panels,
+  latitude,
+  longitude,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<any>(null);
@@ -129,15 +144,12 @@ export const Solar3DViewer: React.FC<Solar3DViewerProps> = ({
     roof.receiveShadow = true;
     houseGroup.add(roof);
 
-    // 6. 3D Qcells 600W Solar Panels (2.46m x 1.13m x 0.035m scaled)
+    // 6. 3D Qcells 600W Solar Panels (2.46m x 1.13m x 0.05m scaled)
     const panelsGroup = new THREE.Group();
 
     const panelW = 1.13;
     const panelL = 2.46;
     const panelH = 0.05;
-
-    const cols = 6;
-    const rows = Math.ceil(activePanelCount / cols);
 
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.8, roughness: 0.3 });
     const glassMat = new THREE.MeshStandardMaterial({
@@ -148,38 +160,40 @@ export const Solar3DViewer: React.FC<Solar3DViewerProps> = ({
       emissiveIntensity: 0.2,
     });
 
-    let count = 0;
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        if (count >= activePanelCount) break;
-        count++;
+    const activePanels = panels.filter(p => p.active);
 
-        const panelMeshGroup = new THREE.Group();
+    activePanels.forEach((p) => {
+      const panelMeshGroup = new THREE.Group();
 
-        // Aluminum Outer Frame
-        const frameGeo = new THREE.BoxGeometry(panelW, panelH, panelL);
-        const frame = new THREE.Mesh(frameGeo, frameMat);
-        frame.castShadow = true;
-        panelMeshGroup.add(frame);
+      // Aluminum Outer Frame
+      const frameGeo = new THREE.BoxGeometry(panelW, panelH, panelL);
+      const frame = new THREE.Mesh(frameGeo, frameMat);
+      frame.castShadow = true;
+      panelMeshGroup.add(frame);
 
-        // Dark Blue Silicon Cell Surface
-        const cellGeo = new THREE.BoxGeometry(panelW - 0.06, panelH + 0.01, panelL - 0.06);
-        const cell = new THREE.Mesh(cellGeo, glassMat);
-        cell.castShadow = true;
-        panelMeshGroup.add(cell);
+      // Dark Blue Silicon Cell Surface
+      const cellGeo = new THREE.BoxGeometry(panelW - 0.06, panelH + 0.01, panelL - 0.06);
+      const cell = new THREE.Mesh(cellGeo, glassMat);
+      cell.castShadow = true;
+      panelMeshGroup.add(cell);
 
-        const xPos = (c - (cols - 1) / 2) * (panelW + 0.12);
-        const zPos = (r - (rows - 1) / 2) * (panelL + 0.15);
+      // Calculate relative coordinate offset in meters
+      const dx = p.lat && p.lng ? (p.lng - longitude) * 111111 * Math.cos((latitude * Math.PI) / 180) : 0;
+      const dz = p.lat && p.lng ? -(p.lat - latitude) * 111111 : 0;
 
-        panelMeshGroup.position.set(xPos, 0, zPos);
-        panelsGroup.add(panelMeshGroup);
-      }
-    }
+      // Project panel height onto standard pitched roof slope geometry
+      const panelPitchRad = (p.tilt * Math.PI) / 180;
+      const y = houseH + Math.max(0, (houseD / 2 - Math.abs(dz)) * Math.tan(panelPitchRad)) + 0.15;
 
-    // Position panel array directly on pitched roof surface matching azimuth
-    panelsGroup.position.set(0, houseH + Math.max(0.6, roofH / 2) + 0.1, 0);
-    panelsGroup.rotation.x = -pitchRad * 0.8;
-    panelsGroup.rotation.y = ((azimuthDegrees - 180) * Math.PI) / 180;
+      panelMeshGroup.position.set(dx, y, dz);
+      
+      // Rotate matching the individual segment azimuth
+      panelMeshGroup.rotation.y = -((p.azimuth - 180) * Math.PI) / 180;
+      // Rotate matching individual segment tilt
+      panelMeshGroup.rotation.x = -panelPitchRad;
+
+      panelsGroup.add(panelMeshGroup);
+    });
 
     houseGroup.add(panelsGroup);
 
@@ -212,7 +226,7 @@ export const Solar3DViewer: React.FC<Solar3DViewerProps> = ({
       window.removeEventListener('resize', handleResize);
       renderer.dispose();
     };
-  }, [roofAreaSqm, pitchDegrees, azimuthDegrees, activePanelCount, isOrbiting, isHeatmap]);
+  }, [roofAreaSqm, pitchDegrees, azimuthDegrees, panels, isOrbiting, isHeatmap, latitude, longitude]);
 
   return (
     <div className="relative w-full h-full rounded-2xl overflow-hidden bg-slate-950 shadow-2xl">

@@ -210,8 +210,7 @@ export async function getSolarInsights(lat: number, lng: number): Promise<SolarI
     return parseGoogleSolarResponse(lat, lng, directInsights, dataLayers);
   }
 
-  // 3. Fallback calculation if location is outside Google Solar API coverage
-  return generateFallbackSolarData(lat, lng);
+  throw new Error("Real solar data is not available for this location.");
 }
 
 function parseGoogleSolarResponse(lat: number, lng: number, data: any, layers: any): SolarInsightsResponse {
@@ -278,48 +277,6 @@ function parseGoogleSolarResponse(lat: number, lng: number, data: any, layers: a
     mask_url,
     dsm_url,
     bounds,
-  };
-}
-
-function generateFallbackSolarData(lat: number, lng: number): SolarInsightsResponse {
-  const roofArea = 185.5;
-  const maxPanels = 44;
-  const generatedPanels: SolarPanelLocation[] = [];
-
-  // Grid layout around center coordinates matching 600W panel size
-  const latStep = 0.000022; // ~2.46 meters
-  const lngStep = 0.000015; // ~1.13 meters
-  const cols = 6;
-  const rows = Math.ceil(maxPanels / cols);
-
-  let count = 0;
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (count >= maxPanels) break;
-      count++;
-      generatedPanels.push({
-        center: {
-          latitude: lat + (r - rows / 2) * latStep,
-          longitude: lng + (c - cols / 2) * lngStep,
-        },
-        orientation: 'LANDSCAPE',
-        segmentIndex: 0,
-        yearSunshineKwh: 1450 - r * 15,
-      });
-    }
-  }
-
-  return {
-    latitude: lat,
-    longitude: lng,
-    roof_area_sqm: roofArea,
-    max_panels_count: maxPanels,
-    pitch_degrees: 22.5,
-    azimuth_degrees: 180.0,
-    estimated_annual_kwh: 24500,
-    is_fallback: true,
-    solar_panels: generatedPanels,
-    roof_segments: [{ pitch_degrees: 22.5, azimuth_degrees: 180.0, area_sqm: roofArea, center: { latitude: lat, longitude: lng } }],
   };
 }
 

@@ -201,7 +201,7 @@ export const ProposalReport: React.FC<ProposalReportProps> = () => {
               {STRINGS.recommendedSystemSection}
             </h3>
             <p className="text-xs font-mono text-slate-600">
-              Configuration: {data.activePanelCount} × 600W High-Efficiency Monocrystalline (2462 × 1134 × 35 mm) · {data.layoutMode} Layout · {data.batteryKwh} kWh Battery Storage · Level 2 EV Charger
+              Configuration: {data.activePanelCount} × Qcells Q.PEAK DUO XL-G11S.3/BFG 600W (2462 × 1134 × 35 mm) · {data.layoutMode} Layout · {data.batteryKwh} kWh Battery Storage · Level 2 EV Charger
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">

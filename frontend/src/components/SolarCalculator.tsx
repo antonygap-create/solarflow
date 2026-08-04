@@ -18,7 +18,8 @@ import type {
 
 const GOOGLE_MAPS_JS_KEY = "AIzaSyCD60pY9r9AfuTxeUrrIaK-qZRzZoY4ZSw";
 
-// Standard 600W Solar Module Specs
+// Standard 600W Qcells Solar Module Specs
+export const PANEL_MODEL_NAME = "Qcells Q.PEAK DUO XL-G11S.3/BFG 600W";
 export const PANEL_POWER_KW = 0.600; // 600 W (0.6 kWp)
 export const PANEL_LENGTH_MM = 2462; // 96.9 in
 export const PANEL_WIDTH_MM = 1134;  // 44.6 in
@@ -627,7 +628,7 @@ export const SolarCalculator: React.FC = () => {
               <div className="text-[11px] font-bold text-amber-400 uppercase tracking-wider flex items-center space-x-2">
                 <span>SolarFlow · United States</span>
                 <span className="px-2 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded font-mono text-[10px]">
-                  ⚡ 600W High-Efficiency Spec (2462×1134×35mm)
+                  ⚡ Qcells Q.PEAK DUO 600W (2462×1134×35mm)
                 </span>
               </div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">

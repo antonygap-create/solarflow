@@ -115,6 +115,28 @@ export interface GeocodeResponse {
 }
 
 /**
+ * Fetch Real Address Autocomplete Suggestions via Google Geocoding API
+ */
+export async function fetchAddressSuggestions(input: string): Promise<GeocodeResponse[]> {
+  if (!input || input.trim().length < 3) return [];
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(input)}&components=country:US&key=${GOOGLE_MAPS_JS_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.status === 'OK' && data.results) {
+      return data.results.slice(0, 5).map((r: any) => ({
+        latitude: r.geometry.location.lat,
+        longitude: r.geometry.location.lng,
+        formatted_address: r.formatted_address,
+      }));
+    }
+  } catch (err) {
+    // Fail gracefully
+  }
+  return [];
+}
+
+/**
  * Geocode Address via FastAPI backend or Google Geocoding API
  */
 export async function geocodeAddress(address: string): Promise<GeocodeResponse> {

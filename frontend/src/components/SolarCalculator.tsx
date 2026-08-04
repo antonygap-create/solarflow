@@ -9,7 +9,8 @@ import {
   estimateEconomics,
   saveProposal,
   getSolarInsights,
-  geocodeAddress
+  geocodeAddress,
+  fetchAddressSuggestions
 } from '../api/solarClient';
 import type {
   SolarGenerationResponse,
@@ -442,16 +443,17 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
-  // Address Search & Autocomplete
-  const handleAddressInputChange = (val: string) => {
+  // Address Search & Real Autocomplete Suggestions
+  const handleAddressInputChange = async (val: string) => {
     setAddressSearch(val);
-    if (val.trim().length >= 2) {
+    if (val.trim().length >= 3) {
       setShowSuggestions(true);
-      setAddressSuggestions([
-        { id: '1', label: `${val}, Mountain View, CA` },
-        { id: '2', label: `${val}, Newport Beach, CA` },
-        { id: '3', label: `${val}, Austin, TX` },
-      ]);
+      try {
+        const results = await fetchAddressSuggestions(val);
+        setAddressSuggestions(results.map((r, idx) => ({ id: `geo_${idx}`, label: r.formatted_address })));
+      } catch {
+        setAddressSuggestions([]);
+      }
     } else {
       setShowSuggestions(false);
       setAddressSuggestions([]);
@@ -466,6 +468,9 @@ export const SolarCalculator: React.FC = () => {
       setLatitude(geo.latitude);
       setLongitude(geo.longitude);
       setStateCode(geo.stateCode || 'CA');
+      if (mapRef.current) {
+        mapRef.current.panTo({ lat: geo.latitude, lng: geo.longitude });
+      }
       runAssessment(geo.latitude, geo.longitude);
     } catch {
       runAssessment(latitude, longitude);

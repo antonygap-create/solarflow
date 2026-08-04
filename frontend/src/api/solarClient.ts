@@ -10,7 +10,7 @@ const API_BASE_URL = (
   'https://solarflow-backend-gbzl7cxmxq-uc.a.run.app'
 ).replace(/\/$/, '');
 
-const GOOGLE_MAPS_JS_KEY = "AIzaSyCD60pY9r9AfuTxeUrrIaK-qZRzZoY4ZSw";
+export const GOOGLE_MAPS_JS_KEY = "AIzaSyCD60pY9r9AfuTxeUrrIaK-qZRzZoY4ZSw";
 
 export interface SolarGenerationRequest {
   latitude: number;
@@ -72,9 +72,16 @@ export interface ProposalRead extends ProposalCreate {
 
 export interface SolarPanelLocation {
   center: { latitude: number; longitude: number };
-  orientation: string;
+  orientation: 'LANDSCAPE' | 'PORTRAIT';
   segmentIndex: number;
   yearSunshineKwh: number;
+}
+
+export interface RoofSegment {
+  pitch_degrees: number;
+  azimuth_degrees: number;
+  area_sqm: number;
+  center: { latitude: number; longitude: number };
 }
 
 export interface SolarInsightsResponse {
@@ -87,14 +94,24 @@ export interface SolarInsightsResponse {
   estimated_annual_kwh: number;
   is_fallback: boolean;
   solar_panels?: SolarPanelLocation[];
+  roof_segments?: RoofSegment[];
   annual_flux_url?: string;
+  rgb_url?: string;
+  mask_url?: string;
   dsm_url?: string;
+  bounds?: {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+  };
 }
 
 export interface GeocodeResponse {
   latitude: number;
   longitude: number;
   formatted_address: string;
+  stateCode?: string;
 }
 
 /**
@@ -113,11 +130,18 @@ export async function geocodeAddress(address: string): Promise<GeocodeResponse> 
   const gData = await gRes.json();
 
   if (gData.status === 'OK' && gData.results && gData.results[0]) {
-    const loc = gData.results[0].geometry.location;
+    const result = gData.results[0];
+    const loc = result.geometry.location;
+    let stateCode = 'CA';
+
+    const stateComp = result.address_components?.find((c: any) => c.types.includes('administrative_area_level_1'));
+    if (stateComp) stateCode = stateComp.short_name;
+
     return {
       latitude: loc.lat,
       longitude: loc.lng,
-      formatted_address: gData.results[0].formatted_address,
+      formatted_address: result.formatted_address,
+      stateCode,
     };
   }
 
@@ -128,72 +152,152 @@ export async function geocodeAddress(address: string): Promise<GeocodeResponse> 
  * Fetch Google Solar API Building Insights & Data Layers directly
  */
 export async function getSolarInsights(lat: number, lng: number): Promise<SolarInsightsResponse> {
-  // 1. Try FastAPI Backend
-  try {
-    const response = await fetch(`${API_BASE_URL}/api/v1/solar/insights?lat=${lat}&lng=${lng}`);
-    if (response.ok) {
-      const data = await response.json();
-      if (data && data.max_panels_count > 0) {
-        return data;
-      }
-    }
-  } catch (err) {
-    // Silent fallback to direct Google Solar API call
-  }
+  let directInsights: any = null;
+  let dataLayers: any = null;
 
-  // 2. Try Direct Google Solar API
+  // 1. Query Direct Google Solar API buildingInsights
   try {
     const gSolarUrl = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=HIGH&key=${GOOGLE_MAPS_JS_KEY}`;
     const gRes = await fetch(gSolarUrl);
-    
-    if (!gRes.ok) {
-      // Retry with LOW quality if HIGH quality building insights are unavailable
+
+    if (gRes.ok) {
+      directInsights = await gRes.json();
+    } else {
       const gSolarLow = `https://solar.googleapis.com/v1/buildingInsights:findClosest?location.latitude=${lat}&location.longitude=${lng}&requiredQuality=LOW&key=${GOOGLE_MAPS_JS_KEY}`;
       const gResLow = await fetch(gSolarLow);
       if (gResLow.ok) {
-        const dataLow = await gResLow.json();
-        return parseGoogleSolarResponse(lat, lng, dataLow);
+        directInsights = await gResLow.json();
       }
-    } else {
-      const data = await gRes.json();
-      return parseGoogleSolarResponse(lat, lng, data);
     }
   } catch (err) {
-    // Silent fallback below
+    // Direct Google Solar call failed
   }
 
-  // 3. Fallback calculation if Google Solar building insights are missing for location
-  return {
-    latitude: lat,
-    longitude: lng,
-    roof_area_sqm: 172.8,
-    max_panels_count: 48,
-    pitch_degrees: 23.2,
-    azimuth_degrees: 180.0,
-    estimated_annual_kwh: 18450,
-    is_fallback: true,
-  };
+  // 2. Query Google Solar API dataLayers (Heatmap raster tiles)
+  try {
+    const layersUrl = `https://solar.googleapis.com/v1/dataLayers:get?location.latitude=${lat}&location.longitude=${lng}&radiusMeters=50&view=FULL_LAYERS&key=${GOOGLE_MAPS_JS_KEY}`;
+    const layersRes = await fetch(layersUrl);
+    if (layersRes.ok) {
+      dataLayers = await layersRes.json();
+    }
+  } catch (err) {
+    // DataLayers call failed
+  }
+
+  if (directInsights) {
+    return parseGoogleSolarResponse(lat, lng, directInsights, dataLayers);
+  }
+
+  // 3. Fallback calculation if location is outside Google Solar API coverage
+  return generateFallbackSolarData(lat, lng);
 }
 
-function parseGoogleSolarResponse(lat: number, lng: number, data: any): SolarInsightsResponse {
+function parseGoogleSolarResponse(lat: number, lng: number, data: any, layers: any): SolarInsightsResponse {
   const solarPotential = data.solarPotential || {};
   const roofStats = solarPotential.wholeRoofStats || {};
-  const segments = solarPotential.roofSegmentStats || [];
-  const primarySegment = segments[0] || {};
+  const segmentsData = solarPotential.roofSegmentStats || [];
+  const primarySegment = segmentsData[0] || {};
 
-  const roofArea = Math.round(roofStats.areaMeters2 || solarPotential.maxArrayAreaMeters2 || 172.8);
+  const roofArea = Math.round(roofStats.areaMeters2 || solarPotential.maxArrayAreaMeters2 || 175.0);
   const maxPanels = solarPotential.maxArrayPanelsCount || Math.floor((roofArea * 0.65) / 2.792);
+
+  const solarPanels: SolarPanelLocation[] = (solarPotential.solarPanels || []).map((p: any) => ({
+    center: { latitude: p.center.latitude, longitude: p.center.longitude },
+    orientation: p.orientation === 'PORTRAIT' ? 'PORTRAIT' : 'LANDSCAPE',
+    segmentIndex: p.segmentIndex || 0,
+    yearSunshineKwh: Math.round(p.yearSunshineKwh || 1400),
+  }));
+
+  const roofSegments: RoofSegment[] = segmentsData.map((s: any) => ({
+    pitch_degrees: Math.round(s.pitchDegrees || 22.5),
+    azimuth_degrees: Math.round(s.azimuthDegrees || 180.0),
+    area_sqm: Math.round(s.stats?.areaMeters2 || 40),
+    center: {
+      latitude: s.center?.latitude || lat,
+      longitude: s.center?.longitude || lng,
+    },
+  }));
+
+  let annual_flux_url: string | undefined = undefined;
+  let rgb_url: string | undefined = undefined;
+  let mask_url: string | undefined = undefined;
+  let dsm_url: string | undefined = undefined;
+  let bounds: any = undefined;
+
+  if (layers) {
+    annual_flux_url = layers.annualFluxUrl ? `${layers.annualFluxUrl}&key=${GOOGLE_MAPS_JS_KEY}` : undefined;
+    rgb_url = layers.rgbUrl ? `${layers.rgbUrl}&key=${GOOGLE_MAPS_JS_KEY}` : undefined;
+    mask_url = layers.maskUrl ? `${layers.maskUrl}&key=${GOOGLE_MAPS_JS_KEY}` : undefined;
+    dsm_url = layers.dsmUrl ? `${layers.dsmUrl}&key=${GOOGLE_MAPS_JS_KEY}` : undefined;
+
+    if (layers.imageryBounds) {
+      bounds = {
+        north: layers.imageryBounds.north,
+        south: layers.imageryBounds.south,
+        east: layers.imageryBounds.east,
+        west: layers.imageryBounds.west,
+      };
+    }
+  }
 
   return {
     latitude: lat,
     longitude: lng,
     roof_area_sqm: roofArea,
     max_panels_count: maxPanels,
-    pitch_degrees: Math.round(primarySegment.pitchDegrees || 23.2),
+    pitch_degrees: Math.round(primarySegment.pitchDegrees || 22.5),
     azimuth_degrees: Math.round(primarySegment.azimuthDegrees || 180.0),
-    estimated_annual_kwh: Math.round(solarPotential.maxSunlightHoursPerYear * maxPanels * 0.6) || 18450,
+    estimated_annual_kwh: Math.round(solarPotential.maxSunlightHoursPerYear * maxPanels * 0.6) || 24500,
     is_fallback: false,
-    solar_panels: solarPotential.solarPanels || [],
+    solar_panels: solarPanels,
+    roof_segments: roofSegments,
+    annual_flux_url,
+    rgb_url,
+    mask_url,
+    dsm_url,
+    bounds,
+  };
+}
+
+function generateFallbackSolarData(lat: number, lng: number): SolarInsightsResponse {
+  const roofArea = 185.5;
+  const maxPanels = 44;
+  const generatedPanels: SolarPanelLocation[] = [];
+
+  // Grid layout around center coordinates matching 600W panel size
+  const latStep = 0.000022; // ~2.46 meters
+  const lngStep = 0.000015; // ~1.13 meters
+  const cols = 6;
+  const rows = Math.ceil(maxPanels / cols);
+
+  let count = 0;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (count >= maxPanels) break;
+      count++;
+      generatedPanels.push({
+        center: {
+          latitude: lat + (r - rows / 2) * latStep,
+          longitude: lng + (c - cols / 2) * lngStep,
+        },
+        orientation: 'LANDSCAPE',
+        segmentIndex: 0,
+        yearSunshineKwh: 1450 - r * 15,
+      });
+    }
+  }
+
+  return {
+    latitude: lat,
+    longitude: lng,
+    roof_area_sqm: roofArea,
+    max_panels_count: maxPanels,
+    pitch_degrees: 22.5,
+    azimuth_degrees: 180.0,
+    estimated_annual_kwh: 24500,
+    is_fallback: true,
+    solar_panels: generatedPanels,
+    roof_segments: [{ pitch_degrees: 22.5, azimuth_degrees: 180.0, area_sqm: roofArea, center: { latitude: lat, longitude: lng } }],
   };
 }
 
@@ -212,7 +316,7 @@ export async function estimateGeneration(data: SolarGenerationRequest): Promise<
     // Fallback
   }
 
-  const annualKwh = Math.round(data.roof_area_sqm * 110 * 0.95);
+  const annualKwh = Math.round(data.roof_area_sqm * 135 * 0.98);
   return {
     estimated_annual_kwh: annualKwh,
     assumptions: {
@@ -292,13 +396,13 @@ export async function getProposalById(id: string): Promise<ProposalRead> {
   return {
     id,
     customer_email: 'customer@example.com',
-    latitude: 33.62588,
-    longitude: -117.85865,
-    system_capacity_kw: 14.4,
-    annual_generation_kwh: 21500,
-    total_system_cost: 32000,
-    estimated_annual_savings: 4500,
-    roi_25_years_percent: 280,
+    latitude: 37.42200,
+    longitude: -122.08410,
+    system_capacity_kw: 26.4,
+    annual_generation_kwh: 24500,
+    total_system_cost: 36000,
+    estimated_annual_savings: 4850,
+    roi_25_years_percent: 310,
     created_at: new Date().toISOString(),
   };
 }

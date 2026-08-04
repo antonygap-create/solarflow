@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { GoogleMap, useJsApiLoader, OverlayViewF, OverlayView } from '@react-google-maps/api';
+import { GoogleMap, useJsApiLoader, OverlayViewF, OverlayView, GroundOverlay } from '@react-google-maps/api';
 import { STRINGS } from '../config/strings';
 import { ConfirmModal } from './ConfirmModal';
 import { Solar3DViewer } from './Solar3DViewer';
@@ -14,7 +14,8 @@ import {
 import type {
   SolarGenerationResponse,
   EconomicsResponse,
-  SolarInsightsResponse
+  SolarInsightsResponse,
+  SolarPanelLocation
 } from '../api/solarClient';
 
 const GOOGLE_MAPS_JS_KEY = "AIzaSyCD60pY9r9AfuTxeUrrIaK-qZRzZoY4ZSw";
@@ -35,13 +36,15 @@ export interface PanelItem {
   azimuth: number;
   tilt: number;
   isSelected?: boolean;
+  lat?: number;
+  lng?: number;
 }
 
 export type MountType = 'FLUSH' | 'EAST_WEST' | 'SOUTH_TILT';
 export type OrientationType = 'LANDSCAPE' | 'PORTRAIT';
 export type ArchitectureType = 'GRID_TIED' | 'HYBRID_BATTERY' | 'OFF_GRID';
 export type MapDisplayMode = 'satellite' | 'heatmap' | '3d';
-export type ActiveTool = 'select' | 'paintPlus' | 'paintMinus';
+export type ActiveTool = 'select' | 'paintPlus' | 'paintMinus' | 'polygon';
 export type CustomerType = 'homeowner' | 'business';
 export type AppState = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -65,18 +68,18 @@ export const SolarCalculator: React.FC = () => {
 
   const mapRef = useRef<google.maps.Map | null>(null);
 
-  // Main App State (Starts immediately in assessment for default US location)
+  // Main App State
   const [appState, setAppState] = useState<AppState>('ready');
   const [loadingStage, setLoadingStage] = useState<string>(STRINGS.loadingStage1);
 
-  // Address State initialized with verified US solar location
+  // Address State initialized with verified US solar location (Google HQ)
   const [addressSearch, setAddressSearch] = useState<string>('1600 Amphitheatre Pkwy, Mountain View, CA');
   const [addressSuggestions, setAddressSuggestions] = useState<Array<{ id: string; label: string }>>([]);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(false);
   const [activeSuggestionIdx] = useState<number>(-1);
   const [isLocating, setIsLocating] = useState<boolean>(false);
 
-  // Default Verified Coordinates (Mountain View, CA)
+  // Default Verified Coordinates
   const [latitude, setLatitude] = useState<number>(37.42200);
   const [longitude, setLongitude] = useState<number>(-122.08410);
   const [stateCode, setStateCode] = useState<string | null>('CA');
@@ -88,14 +91,17 @@ export const SolarCalculator: React.FC = () => {
   const [monthlyBillInput, setMonthlyBillInput] = useState<string>('120');
   const [utilityProfile, setUtilityProfile] = useState<string>('Southern California Edison (NEM 3.0)');
 
-  // Roof Data
+  // Roof & Google Solar API Data
   const [roofAreaSqm, setRoofAreaSqm] = useState<number>(185.50);
   const [maxPanelsCount, setMaxPanelsCount] = useState<number>(44);
   const [pitchDegrees, setPitchDegrees] = useState<number>(22.5);
   const [azimuthDegrees, setAzimuthDegrees] = useState<number>(180.0);
   const [sunshineHours, setSunshineHours] = useState<number>(2950);
+  const [solarPanelsData, setSolarPanelsData] = useState<SolarPanelLocation[]>([]);
+  const [annualFluxUrl, setAnnualFluxUrl] = useState<string | undefined>(undefined);
+  const [imageryBounds, setImageryBounds] = useState<any>(undefined);
 
-  // Roof type derived state: Pitched roof (> 5° tilt) vs Flat roof (<= 5° tilt)
+  // Roof type derived state
   const isPitchedRoof = useMemo(() => pitchDegrees > 5, [pitchDegrees]);
 
   // Map Display Controls
@@ -108,9 +114,9 @@ export const SolarCalculator: React.FC = () => {
   // Layout & CAD Editor
   const [layoutMode, setLayoutMode] = useState<'standard' | 'eastWest' | 'canopy'>('standard');
   const [orientation] = useState<OrientationType>('LANDSCAPE');
-  const [rowAlignment, setRowAlignment] = useState<'roof' | 'south'>('roof');
-  const [arrayRotation, setArrayRotation] = useState<number>(0);
+  const [arrayRotation] = useState<number>(0);
   const [rowPitchGapMeters, setRowPitchGapMeters] = useState<number>(0.4);
+  const [setbackMeters, setSetbackMeters] = useState<number>(0.9); // 3ft Fire Code Setback Margin
   const [activeTool, setActiveTool] = useState<ActiveTool>('select');
   const [isEditingLayout, setIsEditingLayout] = useState<boolean>(false);
 
@@ -118,7 +124,6 @@ export const SolarCalculator: React.FC = () => {
   const [panels, setPanels] = useState<PanelItem[]>([]);
   const [history, setHistory] = useState<PanelItem[][]>([]);
   const [historyIdx, setHistoryIdx] = useState<number>(-1);
-  const [hasManualEdits, setHasManualEdits] = useState<boolean>(false);
 
   // Pro System & Financial Controls
   const [energyUsedAtHomePercent, setEnergyUsedAtHomePercent] = useState<number>(45);
@@ -183,17 +188,12 @@ export const SolarCalculator: React.FC = () => {
     return panels.filter((p) => p.active).length;
   }, [panels]);
 
-  const selectedPanelCount = useMemo(() => {
-    return panels.filter((p) => p.isSelected).length;
-  }, [panels]);
-
   // Push history state
   const pushHistory = (newPanels: PanelItem[]) => {
     const updatedHistory = history.slice(0, historyIdx + 1);
     updatedHistory.push(newPanels);
     setHistory(updatedHistory);
     setHistoryIdx(updatedHistory.length - 1);
-    setHasManualEdits(true);
   };
 
   const handleUndo = useCallback(() => {
@@ -210,10 +210,28 @@ export const SolarCalculator: React.FC = () => {
     }
   }, [historyIdx, history]);
 
-  // Construct panel grid bound STRICTLY to physical roof dimensions
-  const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
+  // Construct panel grid bound STRICTLY to physical roof dimensions & Google Solar API coordinates
+  const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number, solarPanels?: SolarPanelLocation[]) => {
     const physicalCap = Math.max(4, Math.floor((roofAreaSqm * 0.65) / PANEL_AREA_SQM));
     const effectivePanels = Math.min(count || 44, physicalCap);
+
+    if (solarPanels && solarPanels.length > 0) {
+      const panelItems: PanelItem[] = solarPanels.slice(0, effectivePanels).map((p, idx) => ({
+        id: idx,
+        row: Math.floor(idx / 6),
+        col: idx % 6,
+        active: true,
+        azimuth,
+        tilt,
+        isSelected: false,
+        lat: p.center.latitude,
+        lng: p.center.longitude,
+      }));
+      setPanels(panelItems);
+      setHistory([panelItems]);
+      setHistoryIdx(0);
+      return;
+    }
 
     const cols = orientation === 'LANDSCAPE' 
       ? Math.min(8, Math.ceil(Math.sqrt(effectivePanels * 1.3)))
@@ -240,10 +258,9 @@ export const SolarCalculator: React.FC = () => {
     setPanels(initialPanels);
     setHistory([initialPanels]);
     setHistoryIdx(0);
-    setHasManualEdits(false);
   }, [orientation, roofAreaSqm]);
 
-  // AUTO-RUN assessment on initial mount so solar modules ALWAYS render immediately
+  // AUTO-RUN assessment on initial mount
   useEffect(() => {
     if (panels.length === 0) {
       initializePanelGrid(44, 180.0, 22.5);
@@ -355,11 +372,21 @@ export const SolarCalculator: React.FC = () => {
       setAzimuthDegrees(effectiveAzimuth);
       setSunshineHours(2950);
 
+      if (insights.solar_panels && insights.solar_panels.length > 0) {
+        setSolarPanelsData(insights.solar_panels);
+      }
+      if (insights.annual_flux_url) {
+        setAnnualFluxUrl(insights.annual_flux_url);
+      }
+      if (insights.bounds) {
+        setImageryBounds(insights.bounds);
+      }
+
       if (isPitched) {
         setLayoutMode('standard');
       }
 
-      initializePanelGrid(effectiveCount, effectiveAzimuth, effectivePitch);
+      initializePanelGrid(effectiveCount, effectiveAzimuth, effectivePitch, insights.solar_panels);
 
       const genRes = await estimateGeneration({
         latitude: Number(lat),
@@ -438,7 +465,7 @@ export const SolarCalculator: React.FC = () => {
       const geo = await geocodeAddress(itemLabel);
       setLatitude(geo.latitude);
       setLongitude(geo.longitude);
-      setStateCode((geo as any).stateCode || 'CA');
+      setStateCode(geo.stateCode || 'CA');
       runAssessment(geo.latitude, geo.longitude);
     } catch {
       runAssessment(latitude, longitude);
@@ -494,58 +521,8 @@ export const SolarCalculator: React.FC = () => {
       return;
     }
 
-    const applyChange = () => {
-      setLayoutMode(newMode);
-      initializePanelGrid(maxPanelsCount, azimuthDegrees, pitchDegrees);
-    };
-
-    if (hasManualEdits) {
-      setModalConfig({
-        isOpen: true,
-        title: "Discard Manual Edits?",
-        message: "Switching layout will discard your manual panel edits. Continue?",
-        onConfirm: () => {
-          setModalConfig((prev) => ({ ...prev, isOpen: false }));
-          applyChange();
-        },
-      });
-    } else {
-      applyChange();
-    }
-  };
-
-  const handleRowAlignmentChange = (newAlign: 'roof' | 'south') => {
-    const applyChange = () => {
-      setRowAlignment(newAlign);
-      setArrayRotation(newAlign === 'south' ? 180 - azimuthDegrees : 0);
-    };
-
-    if (hasManualEdits) {
-      setModalConfig({
-        isOpen: true,
-        title: "Discard Manual Edits?",
-        message: "Changing row alignment regenerates the layout and discards your manual edits. Continue?",
-        onConfirm: () => {
-          setModalConfig((prev) => ({ ...prev, isOpen: false }));
-          applyChange();
-        },
-      });
-    } else {
-      applyChange();
-    }
-  };
-
-  const handleResetLayout = () => {
-    setModalConfig({
-      isOpen: true,
-      title: "Restore Optimal Layout?",
-      message: "Restore the auto-generated layout? Your manual edits will be lost.",
-      onConfirm: () => {
-        setModalConfig((prev) => ({ ...prev, isOpen: false }));
-        setArrayRotation(0);
-        initializePanelGrid(maxPanelsCount, azimuthDegrees, pitchDegrees);
-      },
-    });
+    setLayoutMode(newMode);
+    initializePanelGrid(maxPanelsCount, azimuthDegrees, pitchDegrees, solarPanelsData);
   };
 
   // Lead Form Validation
@@ -616,6 +593,37 @@ export const SolarCalculator: React.FC = () => {
 
   // Scale factor matching building roof area with 600W module size (2.79m² per module)
   const roofScaleRatio = Math.max(0.70, Math.min(1.15, Math.sqrt(roofAreaSqm / 170.0)));
+
+  // Render individual 600W module CAD marker
+  const renderSinglePanelCAD = (panel: PanelItem) => (
+    <div
+      onClick={() => togglePanelActive(panel.id)}
+      className="cursor-pointer group select-none transition-transform hover:scale-105"
+      style={{
+        width: `${panelW}px`,
+        height: `${panelH}px`,
+      }}
+    >
+      <svg width={panelW} height={panelH} className="overflow-visible drop-shadow-md">
+        <rect
+          x="0"
+          y="0"
+          width={panelW}
+          height={panelH}
+          rx="2"
+          fill={panel.active ? "#1e3a8a" : "#334155"}
+          stroke={panel.isSelected ? "#f59e0b" : panel.active ? "#38bdf8" : "#64748b"}
+          strokeWidth={panel.isSelected ? "2" : "1.2"}
+        />
+        {panel.active && (
+          <>
+            <line x1={panelW / 2} y1="1" x2={panelW / 2} y2={panelH - 1} stroke="#38bdf8" strokeWidth="0.5" strokeOpacity="0.5" />
+            <line x1="1" y1={panelH / 2} x2={panelW - 1} y2={panelH / 2} stroke="#38bdf8" strokeWidth="0.5" strokeOpacity="0.5" />
+          </>
+        )}
+      </svg>
+    </div>
+  );
 
   // SVG Panel Grid Content (Centered & Scaled Exactly for 600W Solar Modules with 3D CAD Bevels)
   const renderPanelGridSVG = () => (
@@ -1018,15 +1026,47 @@ export const SolarCalculator: React.FC = () => {
                       zoomControl: true,
                     }}
                   >
-                    <OverlayViewF
-                      position={{ lat: latitude, lng: longitude }}
-                      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-                      getPixelPositionOffset={(w, h) => ({ x: -(w / 2), y: -(h / 2) })}
-                    >
-                      <div className="relative pointer-events-auto z-20">
-                        {renderPanelGridSVG()}
-                      </div>
-                    </OverlayViewF>
+                    {/* Render Real Google Solar API annualFluxUrl GroundOverlay if available */}
+                    {annualFluxUrl && imageryBounds && mapMode === 'satellite' && (
+                      <GroundOverlay
+                        url={annualFluxUrl}
+                        bounds={{
+                          north: imageryBounds.north,
+                          south: imageryBounds.south,
+                          east: imageryBounds.east,
+                          west: imageryBounds.west,
+                        }}
+                        opacity={0.35}
+                      />
+                    )}
+
+                    {/* Render Panels bound to exact Google Solar API Lat/Lng Coordinates */}
+                    {panels.map((panel) => {
+                      if (!panel.lat || !panel.lng) return null;
+                      return (
+                        <OverlayViewF
+                          key={`panel_overlay_${panel.id}`}
+                          position={{ lat: panel.lat, lng: panel.lng }}
+                          mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                          getPixelPositionOffset={(w, h) => ({ x: -(w / 2), y: -(h / 2) })}
+                        >
+                          {renderSinglePanelCAD(panel)}
+                        </OverlayViewF>
+                      );
+                    })}
+
+                    {/* Fallback Central SVG Grid if Lat/Lng Coordinates are unavailable */}
+                    {(!panels[0]?.lat) && (
+                      <OverlayViewF
+                        position={{ lat: latitude, lng: longitude }}
+                        mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+                        getPixelPositionOffset={(w, h) => ({ x: -(w / 2), y: -(h / 2) })}
+                      >
+                        <div className="relative pointer-events-auto z-20">
+                          {renderPanelGridSVG()}
+                        </div>
+                      </OverlayViewF>
+                    )}
                   </GoogleMap>
                 </div>
               ) : (
@@ -1082,23 +1122,16 @@ export const SolarCalculator: React.FC = () => {
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    <span className="font-bold text-slate-400">{STRINGS.editor.rowsGroup}:</span>
-                    <button
-                      onClick={() => handleRowAlignmentChange('roof')}
-                      className={`px-3 py-1 rounded-lg font-bold ${
-                        rowAlignment === 'roof' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'
-                      }`}
+                    <span className="font-bold text-slate-400">Fire Code Setback:</span>
+                    <select
+                      value={setbackMeters}
+                      onChange={(e) => setSetbackMeters(parseFloat(e.target.value))}
+                      className="px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono"
                     >
-                      {STRINGS.editor.roofRow}
-                    </button>
-                    <button
-                      onClick={() => handleRowAlignmentChange('south')}
-                      className={`px-3 py-1 rounded-lg font-bold ${
-                        rowAlignment === 'south' ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'
-                      }`}
-                    >
-                      {STRINGS.editor.southRow}
-                    </button>
+                      <option value={0.9}>3 ft (36 in / 0.9m) Fire Code</option>
+                      <option value={0.45}>1.5 ft (18 in / 0.45m) Standard</option>
+                      <option value={0.0}>No Setback (0m)</option>
+                    </select>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -1113,27 +1146,6 @@ export const SolarCalculator: React.FC = () => {
                       className="w-16 h-1.5 bg-slate-800 rounded appearance-none cursor-pointer accent-amber-400"
                     />
                     <span className="font-mono text-slate-200">{rowPitchGapMeters}m</span>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <span className="font-bold text-slate-400">{STRINGS.editor.rotate}:</span>
-                    <input
-                      type="range"
-                      min="-90"
-                      max="90"
-                      step="5"
-                      value={arrayRotation}
-                      onChange={(e) => setArrayRotation(parseInt(e.target.value))}
-                      className="w-24 h-1.5 bg-slate-800 rounded appearance-none cursor-pointer accent-amber-400"
-                    />
-                    <span className="font-mono text-slate-200">{arrayRotation > 0 ? `+${arrayRotation}°` : `${arrayRotation}°`}</span>
-                    <button
-                      onClick={handleResetLayout}
-                      disabled={arrayRotation === 0 && !hasManualEdits}
-                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-cyan-300 rounded font-bold disabled:opacity-40"
-                    >
-                      {STRINGS.editor.optimal}
-                    </button>
                   </div>
 
                   <div className="flex items-center space-x-2">
@@ -1154,20 +1166,6 @@ export const SolarCalculator: React.FC = () => {
                     </button>
                   </div>
                 </div>
-
-                {selectedPanelCount > 0 && (
-                  <div className="p-2 bg-slate-800 rounded-xl flex items-center justify-between text-xs">
-                    <span><strong>{selectedPanelCount}</strong> {STRINGS.editor.selected}</span>
-                    <div className="flex space-x-2">
-                      <button onClick={() => setPanels(panels.map(p => p.isSelected ? { ...p, active: true } : p))} className="px-2 py-1 bg-emerald-500 text-slate-950 font-bold rounded">
-                        {STRINGS.editor.enable}
-                      </button>
-                      <button onClick={() => setPanels(panels.map(p => p.isSelected ? { ...p, active: false } : p))} className="px-2 py-1 bg-red-500 text-white font-bold rounded">
-                        {STRINGS.editor.disable}
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 

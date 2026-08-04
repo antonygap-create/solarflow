@@ -1,36 +1,34 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
-import { LeadCaptureWidget } from './components/LeadCaptureWidget';
-import { LoginPage } from './components/LoginPage';
-import { DashboardLayout } from './components/DashboardLayout';
-import { LeadsTable } from './components/LeadsTable';
-import { ProjectManagerView } from './components/ProjectManagerView';
 import { SolarCalculator } from './components/SolarCalculator';
 import { ProposalReport } from './components/ProposalReport';
+import { AdminLoginPage } from './components/AdminLoginPage';
+import { AdminSettingsPage } from './components/AdminSettingsPage';
 
 export function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public B2C Lead Generation Route */}
-          <Route path="/" element={<LeadCaptureWidget />} />
-          <Route path="/estimate" element={<LeadCaptureWidget />} />
+          {/* Specification Primary Route: / - Calculator (Simple & Pro Mode) */}
+          <Route path="/" element={<SolarCalculator />} />
           <Route path="/calculator" element={<SolarCalculator />} />
+
+          {/* Specification Proposal Report Route: /report */}
+          <Route path="/report" element={<ProposalReport />} />
           <Route path="/report/:id" element={<ProposalReport />} />
 
-          {/* Public B2B Login Route */}
-          <Route path="/login" element={<LoginPage />} />
-
-          {/* Protected B2B Manager Dashboard Routes */}
-          <Route path="/dashboard" element={<DashboardLayout />}>
-            <Route index element={<Navigate to="/dashboard/leads" replace />} />
-            <Route path="leads" element={<LeadsTable />} />
-            <Route path="projects/:id" element={<ProjectManagerView />} />
-          </Route>
+          {/* Specification Admin Routes: /admin/login & /admin */}
+          <Route path="/admin/login" element={<AdminLoginPage />} />
+          <Route path="/admin" element={<AdminSettingsPage />} />
+          
+          {/* Legacy Aliases */}
+          <Route path="/login" element={<Navigate to="/admin/login" replace />} />
+          <Route path="/dashboard" element={<Navigate to="/admin" replace />} />
+          <Route path="/estimate" element={<Navigate to="/" replace />} />
 
           {/* Fallback Wildcard Route */}
-          <Route path="*" element={<Navigate to="/estimate" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

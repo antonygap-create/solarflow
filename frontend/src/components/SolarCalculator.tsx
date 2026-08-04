@@ -180,12 +180,13 @@ export const SolarCalculator: React.FC = () => {
     }
   }, [historyIdx, history]);
 
-  // Construct panel grid matching layoutMode & constraints
+  // Construct panel grid matching layoutMode & roof area constraints
   const initializePanelGrid = useCallback((count: number, azimuth: number, tilt: number) => {
     const validCount = Math.max(1, count || 88);
+    // Aspect ratio matching roof dimensions
     const cols = orientation === 'LANDSCAPE' 
-      ? Math.min(12, Math.ceil(Math.sqrt(validCount * 1.5)))
-      : Math.min(10, Math.ceil(Math.sqrt(validCount * 1.1)));
+      ? Math.min(10, Math.ceil(Math.sqrt(validCount * 1.4)))
+      : Math.min(8, Math.ceil(Math.sqrt(validCount * 1.0)));
     const rows = Math.ceil(validCount / cols);
     const initialPanels: PanelItem[] = [];
 
@@ -520,24 +521,37 @@ export const SolarCalculator: React.FC = () => {
     }
   };
 
+  const activeCountOrFallback = Math.max(1, activePanelCount || maxPanelsCount || 88);
   const colsCount = orientation === 'LANDSCAPE'
-    ? Math.min(12, Math.ceil(Math.sqrt((maxPanelsCount || 88) * 1.5)))
-    : Math.min(10, Math.ceil(Math.sqrt((maxPanelsCount || 88) * 1.1)));
-  const rowsCount = Math.ceil((maxPanelsCount || 88) / colsCount);
+    ? Math.min(10, Math.ceil(Math.sqrt(activeCountOrFallback * 1.4)))
+    : Math.min(8, Math.ceil(Math.sqrt(activeCountOrFallback * 1.0)));
+  const rowsCount = Math.ceil(activeCountOrFallback / colsCount);
 
-  // SVG Panel Grid Content
+  // Compute exact physical dimensions & scale factor matching roof dimensions
+  const panelW = orientation === 'LANDSCAPE' ? 24 : 16;
+  const panelH = orientation === 'LANDSCAPE' ? 16 : 28;
+  const stepX = panelW + 2;
+  const stepY = panelH + Math.round(rowPitchGapMeters * 8);
+
+  const totalGridW = colsCount * stepX;
+  const totalGridH = rowsCount * stepY;
+
+  // Scale factor matching building roof area (clamped to realistic roof scale)
+  const roofScaleRatio = Math.max(0.65, Math.min(1.25, Math.sqrt(roofAreaSqm / 170.0)));
+
+  // SVG Panel Grid Content (Centered & Scaled Exactly to Roof Dimensions)
   const renderPanelGridSVG = () => (
     <div
-      className="transition-transform duration-300 shadow-2xl pointer-events-auto"
+      className="transition-transform duration-300 shadow-2xl pointer-events-auto flex items-center justify-center"
       style={{
         transform: mapMode === '3d'
-          ? `rotate(${azimuthDegrees - 180 + arrayRotation + orbitHeading}deg) rotateX(45deg) scale(1.15)`
-          : `rotate(${azimuthDegrees - 180 + arrayRotation}deg) scale(${1 - pitchDegrees / 180})`,
+          ? `rotate(${azimuthDegrees - 180 + arrayRotation + orbitHeading}deg) rotateX(45deg) scale(${1.15 * roofScaleRatio})`
+          : `rotate(${azimuthDegrees - 180 + arrayRotation}deg) scale(${roofScaleRatio * (1 - pitchDegrees / 180)})`,
       }}
     >
       <svg
-        width={Math.min(520, colsCount * (orientation === 'LANDSCAPE' ? 40 : 30))}
-        height={Math.min(380, rowsCount * (orientation === 'LANDSCAPE' ? 30 : 54))}
+        width={totalGridW + 20}
+        height={totalGridH + 20}
         className="overflow-visible drop-shadow-2xl"
       >
         <defs>
@@ -551,33 +565,31 @@ export const SolarCalculator: React.FC = () => {
           </linearGradient>
         </defs>
 
-        <g>
+        <g transform={`translate(10, 10)`}>
           {panels.map((panel) => {
-            const w = orientation === 'LANDSCAPE' ? 38 : 28;
-            const h = orientation === 'LANDSCAPE' ? 28 : 50;
-            const stepX = w + 3;
-            const stepY = h + Math.round(rowPitchGapMeters * 10);
+            const posX = panel.col * stepX;
+            const posY = panel.row * stepY;
 
             return (
               <g
                 key={panel.id}
-                transform={`translate(${panel.col * stepX}, ${panel.row * stepY})`}
+                transform={`translate(${posX}, ${posY})`}
                 onClick={() => togglePanelActive(panel.id)}
                 className="cursor-pointer group"
               >
                 <rect
                   x="1"
                   y="1"
-                  width={w}
-                  height={h}
-                  rx="2.5"
+                  width={panelW}
+                  height={panelH}
+                  rx="2"
                   fill={panel.active ? "url(#solarCellActive)" : "url(#solarCellGhost)"}
                   stroke={panel.isSelected ? "#f59e0b" : panel.active ? "#38bdf8" : "#64748b"}
-                  strokeWidth={panel.isSelected ? "2" : panel.active ? "1.5" : "1"}
+                  strokeWidth={panel.isSelected ? "2" : panel.active ? "1.2" : "1"}
                   className="transition-colors duration-150 group-hover:stroke-amber-400"
                 />
                 {!panel.active && (
-                  <line x1="3" y1="3" x2={w - 3} y2={h - 3} stroke="#ef4444" strokeWidth="1.5" strokeOpacity="0.8" />
+                  <line x1="2" y1="2" x2={panelW - 2} y2={panelH - 2} stroke="#ef4444" strokeWidth="1.2" strokeOpacity="0.8" />
                 )}
               </g>
             );

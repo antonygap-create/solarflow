@@ -16,7 +16,8 @@ import type {
   SolarGenerationResponse,
   EconomicsResponse,
   SolarInsightsResponse,
-  SolarPanelLocation
+  SolarPanelLocation,
+  RoofSegment
 } from '../api/solarClient';
 
 const GOOGLE_MAPS_JS_KEY = "AIzaSyCD60pY9r9AfuTxeUrrIaK-qZRzZoY4ZSw";
@@ -39,6 +40,9 @@ export interface PanelItem {
   isSelected?: boolean;
   lat?: number;
   lng?: number;
+  segmentIndex?: number;
+  orientation?: 'LANDSCAPE' | 'PORTRAIT';
+  yearSunshineKwh?: number;
 }
 
 export type MountType = 'FLUSH' | 'EAST_WEST' | 'SOUTH_TILT';
@@ -99,6 +103,7 @@ export const SolarCalculator: React.FC = () => {
   const [azimuthDegrees, setAzimuthDegrees] = useState<number>(180.0);
   const [sunshineHours, setSunshineHours] = useState<number>(2950);
   const [solarPanelsData, setSolarPanelsData] = useState<SolarPanelLocation[]>([]);
+  const [roofSegmentsData, setRoofSegmentsData] = useState<RoofSegment[]>([]);
   const [annualFluxUrl, setAnnualFluxUrl] = useState<string | undefined>(undefined);
   const [imageryBounds, setImageryBounds] = useState<any>(undefined);
 
@@ -217,17 +222,27 @@ export const SolarCalculator: React.FC = () => {
     const effectivePanels = Math.min(count || 44, physicalCap);
 
     if (solarPanels && solarPanels.length > 0) {
-      const panelItems: PanelItem[] = solarPanels.slice(0, effectivePanels).map((p, idx) => ({
-        id: idx,
-        row: Math.floor(idx / 6),
-        col: idx % 6,
-        active: true,
-        azimuth,
-        tilt,
-        isSelected: false,
-        lat: p.center.latitude,
-        lng: p.center.longitude,
-      }));
+      const panelItems: PanelItem[] = solarPanels.slice(0, effectivePanels).map((p, idx) => {
+        const segIdx = p.segmentIndex ?? 0;
+        const segment = roofSegmentsData[segIdx];
+        const segAzimuth = segment ? segment.azimuth_degrees : azimuth;
+        const segTilt = segment ? segment.pitch_degrees : tilt;
+
+        return {
+          id: idx,
+          row: Math.floor(idx / 6),
+          col: idx % 6,
+          active: true,
+          azimuth: segAzimuth,
+          tilt: segTilt,
+          isSelected: false,
+          lat: p.center.latitude,
+          lng: p.center.longitude,
+          segmentIndex: segIdx,
+          orientation: p.orientation,
+          yearSunshineKwh: p.yearSunshineKwh,
+        };
+      });
       setPanels(panelItems);
       setHistory([panelItems]);
       setHistoryIdx(0);
@@ -281,7 +296,7 @@ export const SolarCalculator: React.FC = () => {
     setPanels(initialPanels);
     setHistory([initialPanels]);
     setHistoryIdx(0);
-  }, [orientation, roofAreaSqm, latitude, longitude, rowPitchGapMeters]);
+  }, [orientation, roofAreaSqm, latitude, longitude, rowPitchGapMeters, roofSegmentsData]);
 
   // AUTO-RUN assessment on initial mount
   useEffect(() => {
@@ -397,6 +412,9 @@ export const SolarCalculator: React.FC = () => {
 
       if (insights.solar_panels && insights.solar_panels.length > 0) {
         setSolarPanelsData(insights.solar_panels);
+      }
+      if (insights.roof_segments && insights.roof_segments.length > 0) {
+        setRoofSegmentsData(insights.roof_segments);
       }
       if (insights.annual_flux_url) {
         setAnnualFluxUrl(insights.annual_flux_url);
@@ -621,12 +639,13 @@ export const SolarCalculator: React.FC = () => {
   // Scale factor matching building roof area with 600W module size (2.79m² per module)
   const roofScaleRatio = Math.max(0.70, Math.min(1.15, Math.sqrt(roofAreaSqm / 170.0)));
 
-  // Calculate exact coordinates of 4 corners of a panel relative to Earth's surface
+  // Calculate exact coordinates of 4 corners of a panel relative to Earth's surface with slope foreshortening
   const getPanelCorners = (
     centerLat: number,
     centerLng: number,
     orient: 'LANDSCAPE' | 'PORTRAIT',
-    azimuthDeg: number
+    azimuthDeg: number,
+    tiltDeg: number
   ) => {
     const length = 2.462;
     const width = 1.134;
@@ -634,13 +653,18 @@ export const SolarCalculator: React.FC = () => {
     const w = orient === 'LANDSCAPE' ? length : width;
     const h = orient === 'LANDSCAPE' ? width : length;
 
+    // Pitch foreshortening: vertical dimension (along the slope) is compressed by cos(tilt)
+    const pitchRad = (tiltDeg * Math.PI) / 180;
+    const cosPitch = Math.cos(pitchRad);
+
     const halfW = w / 2;
     const halfH = h / 2;
 
     const angleRad = (azimuthDeg * Math.PI) / 180;
 
+    // rotX remains horizontal (unforeshortened), rotY along slope is compressed by cosPitch
     const dx = [-halfW, halfW, halfW, -halfW];
-    const dy = [halfH, halfH, -halfH, -halfH];
+    const dy = [halfH * cosPitch, halfH * cosPitch, -halfH * cosPitch, -halfH * cosPitch];
 
     const corners: Array<{ lat: number; lng: number }> = [];
 
@@ -1158,7 +1182,13 @@ export const SolarCalculator: React.FC = () => {
                     {/* Render Panels bound to exact Google Solar API Lat/Lng Coordinates natively */}
                     {panels.map((panel) => {
                       if (!panel.lat || !panel.lng) return null;
-                      const corners = getPanelCorners(panel.lat, panel.lng, orientation, panel.azimuth);
+                      const corners = getPanelCorners(
+                        panel.lat,
+                        panel.lng,
+                        panel.orientation || orientation,
+                        panel.azimuth,
+                        panel.tilt
+                      );
                       return (
                         <Polygon
                           key={`panel_poly_${panel.id}`}

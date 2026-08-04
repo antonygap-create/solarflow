@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { GoogleMap, useJsApiLoader, OverlayViewF, OverlayView, GroundOverlay } from '@react-google-maps/api';
+import { GoogleMap, useJsApiLoader, OverlayViewF, OverlayView, GroundOverlay, Polygon } from '@react-google-maps/api';
 import { STRINGS } from '../config/strings';
 import { ConfirmModal } from './ConfirmModal';
 import { Solar3DViewer } from './Solar3DViewer';
@@ -234,32 +234,54 @@ export const SolarCalculator: React.FC = () => {
       return;
     }
 
+    const latDegreeLen = 111111;
+    const lngDegreeLen = 111111 * Math.cos((latitude * Math.PI) / 180);
+
+    const panelLengthM = 2.462;
+    const panelWidthM = 1.134;
+    const gapM = 0.15;
+
+    const stepX = (orientation === 'LANDSCAPE' ? panelLengthM : panelWidthM) + gapM;
+    const stepY = (orientation === 'LANDSCAPE' ? panelWidthM : panelLengthM) + gapM + rowPitchGapMeters;
+
     const cols = orientation === 'LANDSCAPE' 
       ? Math.min(8, Math.ceil(Math.sqrt(effectivePanels * 1.3)))
       : Math.min(6, Math.ceil(Math.sqrt(effectivePanels * 0.9)));
     const rows = Math.ceil(effectivePanels / cols);
     const initialPanels: PanelItem[] = [];
 
+    const angleRad = (azimuth * Math.PI) / 180;
+    let idx = 0;
+
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const id = r * cols + c;
-        if (id < effectivePanels) {
-          initialPanels.push({
-            id,
-            row: r,
-            col: c,
-            active: true,
-            azimuth,
-            tilt,
-            isSelected: false,
-          });
-        }
+        if (idx >= effectivePanels) break;
+
+        const dxM = (c - (cols - 1) / 2) * stepX;
+        const dyM = (r - (rows - 1) / 2) * stepY;
+
+        // Rotate relative to roof azimuth
+        const rotX = dxM * Math.cos(angleRad) - dyM * Math.sin(angleRad);
+        const rotY = dxM * Math.sin(angleRad) + dyM * Math.cos(angleRad);
+
+        initialPanels.push({
+          id: idx,
+          row: r,
+          col: c,
+          active: true,
+          azimuth,
+          tilt,
+          isSelected: false,
+          lat: latitude + rotY / latDegreeLen,
+          lng: longitude + rotX / lngDegreeLen,
+        });
+        idx++;
       }
     }
     setPanels(initialPanels);
     setHistory([initialPanels]);
     setHistoryIdx(0);
-  }, [orientation, roofAreaSqm]);
+  }, [orientation, roofAreaSqm, latitude, longitude, rowPitchGapMeters]);
 
   // AUTO-RUN assessment on initial mount
   useEffect(() => {
@@ -599,36 +621,109 @@ export const SolarCalculator: React.FC = () => {
   // Scale factor matching building roof area with 600W module size (2.79m² per module)
   const roofScaleRatio = Math.max(0.70, Math.min(1.15, Math.sqrt(roofAreaSqm / 170.0)));
 
-  // Render individual 600W module CAD marker
-  const renderSinglePanelCAD = (panel: PanelItem) => (
-    <div
-      onClick={() => togglePanelActive(panel.id)}
-      className="cursor-pointer group select-none transition-transform hover:scale-105"
-      style={{
-        width: `${panelW}px`,
-        height: `${panelH}px`,
-      }}
-    >
-      <svg width={panelW} height={panelH} className="overflow-visible drop-shadow-md">
-        <rect
-          x="0"
-          y="0"
-          width={panelW}
-          height={panelH}
-          rx="2"
-          fill={panel.active ? "#1e3a8a" : "#334155"}
-          stroke={panel.isSelected ? "#f59e0b" : panel.active ? "#38bdf8" : "#64748b"}
-          strokeWidth={panel.isSelected ? "2" : "1.2"}
-        />
-        {panel.active && (
-          <>
-            <line x1={panelW / 2} y1="1" x2={panelW / 2} y2={panelH - 1} stroke="#38bdf8" strokeWidth="0.5" strokeOpacity="0.5" />
-            <line x1="1" y1={panelH / 2} x2={panelW - 1} y2={panelH / 2} stroke="#38bdf8" strokeWidth="0.5" strokeOpacity="0.5" />
-          </>
-        )}
-      </svg>
-    </div>
-  );
+  // Calculate exact coordinates of 4 corners of a panel relative to Earth's surface
+  const getPanelCorners = (
+    centerLat: number,
+    centerLng: number,
+    orient: 'LANDSCAPE' | 'PORTRAIT',
+    azimuthDeg: number
+  ) => {
+    const length = 2.462;
+    const width = 1.134;
+
+    const w = orient === 'LANDSCAPE' ? length : width;
+    const h = orient === 'LANDSCAPE' ? width : length;
+
+    const halfW = w / 2;
+    const halfH = h / 2;
+
+    const angleRad = (azimuthDeg * Math.PI) / 180;
+
+    const dx = [-halfW, halfW, halfW, -halfW];
+    const dy = [halfH, halfH, -halfH, -halfH];
+
+    const corners: Array<{ lat: number; lng: number }> = [];
+
+    const latDegreeLen = 111111;
+    const lngDegreeLen = 111111 * Math.cos((centerLat * Math.PI) / 180);
+
+    for (let i = 0; i < 4; i++) {
+      const rotX = dx[i] * Math.cos(angleRad) - dy[i] * Math.sin(angleRad);
+      const rotY = dx[i] * Math.sin(angleRad) + dy[i] * Math.cos(angleRad);
+
+      corners.push({
+        lat: centerLat + rotY / latDegreeLen,
+        lng: centerLng + rotX / lngDegreeLen,
+      });
+    }
+
+    return corners;
+  };
+
+  const getPolygonOptions = (panel: PanelItem) => {
+    const isActive = panel.active;
+    const isSelected = panel.isSelected;
+
+    const fillColor = isActive ? '#1d4ed8' : '#334155';
+    const strokeColor = isSelected ? '#f59e0b' : (isActive ? '#38bdf8' : '#64748b');
+    const fillOpacity = isActive ? 0.75 : 0.25;
+
+    return {
+      fillColor,
+      fillOpacity,
+      strokeColor,
+      strokeOpacity: 0.9,
+      strokeWeight: isSelected ? 3 : 1.5,
+      zIndex: isActive ? 100 : 10,
+    };
+  };
+
+  // Draw fire code setback zones around the panel grid
+  const setbackPath = useMemo(() => {
+    if (panels.length === 0 || setbackMeters === 0) return null;
+
+    let minLat = 90;
+    let maxLat = -90;
+    let minLng = 180;
+    let maxLng = -180;
+
+    panels.forEach(p => {
+      if (p.lat && p.lng) {
+        if (p.lat < minLat) minLat = p.lat;
+        if (p.lat > maxLat) maxLat = p.lat;
+        if (p.lng < minLng) minLng = p.lng;
+        if (p.lng > maxLng) maxLng = p.lng;
+      }
+    });
+
+    const latDegreeLen = 111111;
+    const lngDegreeLen = 111111 * Math.cos((latitude * Math.PI) / 180);
+
+    const marginLat = setbackMeters / latDegreeLen;
+    const marginLng = setbackMeters / lngDegreeLen;
+
+    return [
+      { lat: minLat - marginLat, lng: minLng - marginLng },
+      { lat: maxLat + marginLat, lng: minLng - marginLng },
+      { lat: maxLat + marginLat, lng: maxLng + marginLng },
+      { lat: minLat - marginLat, lng: maxLng + marginLng },
+    ];
+  }, [panels, setbackMeters, latitude]);
+
+  const handlePanelInteraction = (id: number) => {
+    let updated: PanelItem[];
+    if (activeTool === 'paintPlus') {
+      updated = panels.map((p) => (p.id === id ? { ...p, active: true } : p));
+    } else if (activeTool === 'paintMinus') {
+      updated = panels.map((p) => (p.id === id ? { ...p, active: false } : p));
+    } else if (activeTool === 'select') {
+      updated = panels.map((p) => (p.id === id ? { ...p, active: !p.active } : p));
+    } else {
+      updated = panels.map((p) => (p.id === id ? { ...p, isSelected: !p.isSelected } : p));
+    }
+    setPanels(updated);
+    pushHistory(updated);
+  };
 
   // SVG Panel Grid Content (Centered & Scaled Exactly for 600W Solar Modules with 3D CAD Bevels)
   const renderPanelGridSVG = () => (
@@ -1041,27 +1136,41 @@ export const SolarCalculator: React.FC = () => {
                           east: imageryBounds.east,
                           west: imageryBounds.west,
                         }}
-                        opacity={0.35}
+                        opacity={0.45}
                       />
                     )}
 
-                    {/* Render Panels bound to exact Google Solar API Lat/Lng Coordinates */}
+                    {/* Render Fire Code Setback Boundary Margin */}
+                    {setbackPath && (
+                      <Polygon
+                        paths={setbackPath}
+                        options={{
+                          fillColor: '#ef4444',
+                          fillOpacity: 0.05,
+                          strokeColor: '#ef4444',
+                          strokeOpacity: 0.8,
+                          strokeWeight: 1.5,
+                          zIndex: 5,
+                        }}
+                      />
+                    )}
+
+                    {/* Render Panels bound to exact Google Solar API Lat/Lng Coordinates natively */}
                     {panels.map((panel) => {
                       if (!panel.lat || !panel.lng) return null;
+                      const corners = getPanelCorners(panel.lat, panel.lng, orientation, panel.azimuth);
                       return (
-                        <OverlayViewF
-                          key={`panel_overlay_${panel.id}`}
-                          position={{ lat: panel.lat, lng: panel.lng }}
-                          mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-                          getPixelPositionOffset={(w, h) => ({ x: -(w / 2), y: -(h / 2) })}
-                        >
-                          {renderSinglePanelCAD(panel)}
-                        </OverlayViewF>
+                        <Polygon
+                          key={`panel_poly_${panel.id}`}
+                          paths={corners}
+                          options={getPolygonOptions(panel)}
+                          onClick={() => handlePanelInteraction(panel.id)}
+                        />
                       );
                     })}
 
-                    {/* Fallback Central SVG Grid if Lat/Lng Coordinates are unavailable */}
-                    {(!panels[0]?.lat) && (
+                    {/* Fallback Central SVG Grid if Lat/Lng Coordinates are completely unavailable */}
+                    {(!panels[0] || !panels[0].lat) && (
                       <OverlayViewF
                         position={{ lat: latitude, lng: longitude }}
                         mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}

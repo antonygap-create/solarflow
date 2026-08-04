@@ -3,6 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { GoogleMap, useJsApiLoader, OverlayViewF, OverlayView } from '@react-google-maps/api';
 import { STRINGS } from '../config/strings';
 import { ConfirmModal } from './ConfirmModal';
+import { Solar3DViewer } from './Solar3DViewer';
 import {
   estimateGeneration,
   estimateEconomics,
@@ -980,8 +981,27 @@ export const SolarCalculator: React.FC = () => {
                 )}
               </div>
 
-              {/* Native Google Map Canvas with 3D and Solar Heatmap Overlay */}
-              {isLoaded && !loadError ? (
+              {/* Photorealistic 3D & Solar Heatmap View vs Satellite Google Map Canvas */}
+              {mapMode === '3d' || mapMode === 'heatmap' ? (
+                <div className="absolute inset-0 z-10">
+                  <Solar3DViewer
+                    roofAreaSqm={roofAreaSqm}
+                    pitchDegrees={pitchDegrees}
+                    azimuthDegrees={azimuthDegrees}
+                    activePanelCount={activePanelCount}
+                    isOrbiting={isOrbiting3D}
+                    orbitHeading={orbitHeading}
+                    isHeatmap={mapMode === 'heatmap'}
+                  />
+                  {mapMode === 'heatmap' && (
+                    <div className="absolute bottom-4 left-4 z-30 p-2 bg-slate-900/90 border border-slate-700 rounded-xl text-[10px] font-mono text-slate-200 flex items-center space-x-2 shadow-lg">
+                      <span>Low Sun</span>
+                      <div className="w-24 h-2 rounded bg-gradient-to-r from-purple-900 via-orange-500 to-amber-300" />
+                      <span>Peak Exposure ({sunshineHours}h/yr)</span>
+                    </div>
+                  )}
+                </div>
+              ) : isLoaded && !loadError ? (
                 <div className="absolute inset-0 z-10">
                   <GoogleMap
                     mapContainerStyle={{ width: '100%', height: '100%', borderRadius: '1rem' }}
@@ -992,27 +1012,12 @@ export const SolarCalculator: React.FC = () => {
                     }}
                     options={{
                       mapTypeId: surveyImagery ? 'satellite' : 'hybrid',
-                      tilt: mapMode === '3d' ? 60 : 45,
-                      heading: mapMode === '3d' ? orbitHeading : 0,
+                      tilt: 45,
+                      heading: 0,
                       disableDefaultUI: true,
                       zoomControl: true,
                     }}
                   >
-                    {/* Solar Irradiance Heatmap Overlay */}
-                    {mapMode === 'heatmap' && (
-                      <div className="absolute inset-0 pointer-events-none z-10">
-                        {/* High-Resolution Heat Gradient Overlay over Roof Features */}
-                        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-amber-400/60 via-orange-500/50 to-indigo-950/40 mix-blend-color-dodge" />
-                        
-                        {/* Sun Exposure Intensity Legend */}
-                        <div className="absolute bottom-4 left-4 z-30 p-2 bg-slate-900/90 border border-slate-700 rounded-xl text-[10px] font-mono text-slate-200 flex items-center space-x-2 shadow-lg">
-                          <span>Low Sun</span>
-                          <div className="w-24 h-2 rounded bg-gradient-to-r from-purple-900 via-orange-500 to-amber-300" />
-                          <span>Peak Exposure ({sunshineHours}h/yr)</span>
-                        </div>
-                      </div>
-                    )}
-
                     <OverlayViewF
                       position={{ lat: latitude, lng: longitude }}
                       mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
